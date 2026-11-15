@@ -8,8 +8,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { initResearch, onTab, logScan } from './research.js';
-import { chips, initSources } from './sources.js';
+import { initResearch, onTab, logScan } from './research.js?v=5';
+import { chips, initSources } from './sources.js?v=5';
 
 /* ============================================================
    CONFIG
@@ -128,12 +128,25 @@ const state = {
    ============================================================ */
 const app = document.getElementById('app');
 let S = 1;
+const ZOOMS = [1, 1.15, 1.3, 1.5, 1.75, 2];
+let uiZoom = (() => { try { return +localStorage.getItem('beyond-horizons:ui-zoom') || 1; } catch { return 1; } })();
 function layout() {
-  S = Math.min(innerWidth / 1920, innerHeight / 1080);
-  const ox = (innerWidth - 1920 * S) / 2, oy = (innerHeight - 1080 * S) / 2;
+  const fit = Math.min(innerWidth / 1920, innerHeight / 1080);
+  S = fit * uiZoom;
+  const W = 1920 * S, H = 1080 * S, ox = Math.max(0, (innerWidth - W) / 2), oy = Math.max(0, (innerHeight - H) / 2);
   app.style.transform = `translate(${ox}px,${oy}px) scale(${S})`;
+  const st = document.getElementById('stage');
+  st.style.width = Math.max(innerWidth, W) + 'px'; st.style.height = Math.max(innerHeight, H) + 'px';
+  document.documentElement.classList.toggle('zoomed', uiZoom > 1);
+  const zv = document.getElementById('zoomVal'); if (zv) zv.textContent = Math.round(uiZoom * 100) + '%';
   sizeHolo(); sizeMini(); sizeWaves();
 }
+function setZoom(dir) {
+  const i = Math.max(0, Math.min(ZOOMS.length - 1, ZOOMS.indexOf(uiZoom) + dir));
+  uiZoom = ZOOMS[i] ?? 1; try { localStorage.setItem('beyond-horizons:ui-zoom', uiZoom); } catch { /* ignore */ }
+  layout();
+}
+addEventListener('scroll', () => sizeHolo(), { passive: true });
 
 /* ============================================================
    LOADING
@@ -1034,6 +1047,8 @@ function hudSummary() {
 }
 function buildStatic() {
   initSources();
+  $('#zoomIn').onclick = () => setZoom(1); $('#zoomOut').onclick = () => setZoom(-1);
+  if (!ZOOMS.includes(uiZoom)) uiZoom = 1;
   const put = (id, ids) => { const el = document.getElementById(id); if (el) el.innerHTML = chips(ids); };
   put('envSrc', ['std3001_co2', 'std3001_env', 'std3001_atm', 'iss_dose']); put('genSrc', ['twins']); put('sysSrc', ['std3001_co2', 'std3001_atm']);
   put('misSrc', ['iss_dose']); put('transitSrc', ['msl_rad', 'iss_dose']); put('rangeSrc', ['clinical']); put('markSrc', ['twins']);

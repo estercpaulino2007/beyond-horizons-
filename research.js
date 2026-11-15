@@ -49,7 +49,7 @@ async function api(path, body) {
 }
 /* ---------- offline snapshot: real outputs of the Beyond Horizons API, used when the live link is unavailable ---------- */
 let snapP = null;
-const getSnap = () => (snapP ||= fetch('data/snapshot.json').then(r => { if (!r.ok) throw new Error('snapshot missing'); return r.json(); }));
+const getSnap = () => (snapP ||= fetch('data/snapshot.json?v=5').then(r => { if (!r.ok) throw new Error('snapshot missing'); return r.json(); }));
 const SNAP_NOTE = '<div class="snap-note">OFFLINE SNAPSHOT · real outputs of the Beyond Horizons API (deterministic Ares-180 seed), shown because the live data link is unavailable.</div>';
 async function apiOr(path, body, pick) {
   try { return { data: await api(path, body), snap: false }; }
