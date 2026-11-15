@@ -132,7 +132,39 @@ Opening `index.html` directly from disk will not load the 3D models (browsers bl
 - Several datasets come from ground-based or animal studies (labelled as such in the SOURCES panel).
 
 ## Credits
-Built by the Beyond Horizons team for the NASA Space Apps Challenge 2026. 3D models (astronaut, anatomy, brain, DNA, Earth, Mars, ISS interior photogrammetry, starfield) are used under their respective licences — add each model's author and licence here before submitting.
+Built by Ester Coelho Paulino for the NASA Space Apps Challenge 2026. 3D models (astronaut, anatomy, brain, DNA, Earth, Mars, ISS interior photogrammetry, starfield) are used under their respective licences — add each model's author and licence here before submitting.
+
+### 3D Models
+
+#### ISS Photogrammetry Interior
+- Creator: VTX (@VTX_car)
+- Source: https://sketchfab.com/3d-models/iss-photogrammetry-interior-6a0ff2ea447347b2adcc813e1c9912a7
+- Licence: Creative Commons Attribution-NonCommercial-ShareAlike (CC BY-NC-SA).
+- See the source page for the applicable licence version and full terms.
+
+#### Splanchnology
+- Creator: Z-Anatomy.
+- Based on anatomical data from BodyParts3D, as described on the source page.
+- Source: https://sketchfab.com/3d-models/splanchnology-5cfafb312f504815aa3fec55735607a6
+- Licence: Creative Commons Attribution-ShareAlike (CC BY-SA).
+- See the source page for the applicable licence version, original credits and full terms.
+
+#### Blue Brain
+- Creator: Wilhelm.von.3D
+- Source: https://sketchfab.com/3d-models/blue-brain-a7943aec0f0440b38c94c1533c0df217
+- Licence: Creative Commons Attribution (CC BY).
+- See the source page for the applicable licence version and full terms.
+
+### Asset Modifications
+
+The project's asset-processing pipeline includes geometry compression
+and texture/material conversion. Individual assets may have been
+adapted for presentation within the Beyond Horizons interface.
+
+### Third-Party Licences
+
+Third-party assets are governed by their respective licences and are
+not covered by the project's MIT software licence.
 
 ## License
 MIT.
