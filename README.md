@@ -48,11 +48,21 @@ Built-in scenarios (keys `1`–`7`), each tied to NASA references:
 - **Body scan log**: every completed scan is recorded automatically with scenario, status and vitals.
 - **Export / Import** the whole history as JSON to move it between devices or between this site and the full platform.
 
-### 5. Crew Risk — Ares-180 simulation
-Runs the platform's simulation engine for the four synthetic crew members of the 180-day Ares-180 Mars-transit mission. Choose destination, duration, communication delay and countermeasures (enhanced exercise, radiation shielding, sleep & cognitive-load protocol); see daily operational risk per crew member, vulnerability windows, days per risk band and each person's top risk drivers.
+### 5. Crew Risk — Ares-180 simulation (customizable)
+Runs the platform's simulation engine for the four crew members of the 180-day Ares-180 Mars-transit mission, day by day.
+- **Edit the crew**: rename each member and set their six traits — radiation sensitivity, bone-loss susceptibility, sleep resilience, muscle recovery, cognitive resilience, inflammatory baseline (sent to the engine as `crew_overrides`). Your crew is saved and is also used by the Genetics simulator.
+- **Mission**: destination, duration, communication delay.
+- **Events**: switch on/off the scripted events — solar particle event (day 143), exercise-module failure (days 143–154), 22-minute communication delay, critical EVA (day 145).
+- **Countermeasures**: enhanced exercise, radiation shielding, sleep & cognitive-load protocol.
+- **Results**: daily operational risk per crew member, vulnerability windows, days per risk band, each person's peak risk and top drivers. Custom crew/events/mission need the live data link; offline, the stored default run is shown and the screen says so.
 
 ### 6. EVA Decision and Debate Chamber
-Compares the three alternatives for the critical day-145 EVA (maintain, delay 10 days, reassign + recovery) on completion probability and peak operational, cognitive and musculoskeletal risk, and shows the Debate Chamber: mission commander, flight surgeon, science officer and a skeptic, each applying one fixed, auditable formula.
+An **EVA** (extravehicular activity) is a spacewalk — the most demanding task of a mission. In Ares-180 a critical EVA is planned for **day 145**, two days after a **solar storm (day 143)** and while the **exercise module is broken (days 143–154)**, so the assigned astronaut is tired, sleep-deprived and carries extra radiation. Three options are simulated:
+- **A · Maintain** — Atlas does the EVA on day 145 as planned.
+- **B · Delay** — same astronaut, 10 days later (day 155).
+- **C · Reassign + recovery** — Nova does it on day 145, with a sleep-recovery protocol.
+
+For each option the tab shows the chance the EVA is completed and the peak operational, cognitive and musculoskeletal risk. The **Debate Chamber** then shows four roles, each with one fixed formula: the mission commander (get it done safely), the flight surgeon (crew health only), the science officer (usable result, low uncertainty) and a skeptic who never votes but points out what the winner does worse.
 
 ### 7. Research — evidence graph and Research Navigator
 An interactive causal graph (radiation, microgravity, sleep debt, cognitive load, bone, muscle, operational error…) where every link is coloured by evidence level — supported evidence, data-supported association, exploratory hypothesis, synthetic parameter. Click a node or link to see its source and limitations. The Research Navigator ranks the next experiments by `mission_impact × uncertainty × information_gain / cost`.

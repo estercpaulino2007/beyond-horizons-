@@ -231,17 +231,59 @@ async function loadCrewControls() {
     $('#cmList').innerHTML = catalog.map(c => `<label class="chk"><input type="checkbox" value="${esc(c.id)}"><span><b>${esc(c.name)}</b><small>${esc(c.target_risk.replace(/_/g, ' '))}</small></span></label>`).join('');
   } catch (e) { $('#cmList').innerHTML = `<p class="note">${esc(e.message)}</p>`; }
 }
+/* crew customization: names + baseline traits (sent as crew_overrides) and scripted events (active_event_ids) */
+const CREW_KEY = 'beyond-horizons:crew-custom', EVT_KEY = 'beyond-horizons:crew-events';
+const TRAITS = [['radiation_sensitivity', 'Radiation sensitivity', 'higher = more affected by radiation'], ['bone_loss_susceptibility', 'Bone-loss susceptibility', 'higher = loses bone faster'], ['sleep_resilience', 'Sleep resilience', 'higher = copes better with little sleep'], ['muscle_recovery', 'Muscle recovery', 'higher = recovers faster'], ['cognitive_resilience', 'Cognitive resilience', 'higher = keeps focus under load'], ['inflammatory_baseline', 'Inflammatory baseline', 'higher = more inflammation at rest']];
+let missionSeed = null;
+async function getSeed() { if (!missionSeed) missionSeed = (await apiOr('/api/v1/missions/ares-180', undefined, sn => sn.mission)).data; return missionSeed; }
+export function crewCustom() { return lsGet(CREW_KEY, {}); }
+export function applyCrewCustom(profiles) {
+  const cc = crewCustom();
+  return (profiles || []).map(p => { const c = cc[p.id]; return c ? { ...p, display_name: c.display_name || p.display_name, baseline: { ...p.baseline, ...(c.baseline || {}) } } : p; });
+}
+function crewIsDefault() { return !Object.keys(crewCustom()).length; }
+async function renderEvents() {
+  const seed = await getSeed().catch(() => null), saved = lsGet(EVT_KEY, null);
+  const evs = seed?.events || [];
+  $('#evList').innerHTML = evs.map(e => `<label class="chk"><input type="checkbox" value="${esc(e.id)}" ${!saved || saved.includes(e.id) ? 'checked' : ''}><span><b>${esc(e.description)}</b><small>day ${e.day_start}${e.day_end && e.day_end !== e.day_start ? '–' + e.day_end : ''}</small></span></label>`).join('') || '<p class="note">Events unavailable.</p>';
+  $$('#evList input').forEach(i => i.onchange = () => lsSet(EVT_KEY, $$('#evList input').filter(x => x.checked).map(x => x.value)));
+}
+async function openCrewEditor() {
+  const seed = await getSeed().catch(() => null); if (!seed) { toast('Crew data unavailable.'); return; }
+  const cc = crewCustom();
+  $('#crewEdBody').innerHTML = seed.crew_profiles.map((p, i) => {
+    const c = cc[p.id] || {}, b = { ...p.baseline, ...(c.baseline || {}) };
+    return `<div class="ced" data-id="${esc(p.id)}" style="--c:${CREW_COL[i % 4]}"><div class="ced-h"><input class="ced-name" maxlength="40" value="${esc(c.display_name || p.display_name)}"><span>${esc(p.role)}</span></div>
+      ${TRAITS.map(([k, l, h]) => `<label class="ced-t" title="${h}"><span>${l}</span><input type="range" min="0" max="1" step="0.01" data-k="${k}" value="${b[k]}"><b>${(+b[k]).toFixed(2)}</b></label>`).join('')}</div>`;
+  }).join('');
+  $$('#crewEdBody input[type=range]').forEach(r => r.oninput = () => { r.nextElementSibling.textContent = (+r.value).toFixed(2); });
+  $('#crewEdModal').classList.remove('hidden');
+}
+async function saveCrewEditor() {
+  const seed = await getSeed(), out = {};
+  $$('#crewEdBody .ced').forEach(el => {
+    const p = seed.crew_profiles.find(x => x.id === el.dataset.id), name = el.querySelector('.ced-name').value.trim(), base = {};
+    el.querySelectorAll('input[type=range]').forEach(r => { const v = +(+r.value).toFixed(2); if (Math.abs(v - p.baseline[r.dataset.k]) > 0.001) base[r.dataset.k] = v; });
+    if ((name && name !== p.display_name) || Object.keys(base).length) out[p.id] = { ...(name && name !== p.display_name ? { display_name: name } : {}), baseline: base };
+  });
+  lsSet(CREW_KEY, out); $('#crewEdModal').classList.add('hidden');
+  window.dispatchEvent(new CustomEvent('beyond-horizons:crew-changed'));
+  runCrewSim();
+}
 async function runCrewSim() {
   const out = $('#crewChartWrap'); loading($('#crewCards'), 'RUNNING SIMULATION ENGINE…');
   const body = { mission_id: 'ares-180', countermeasures: (catalog || []).filter(c => $(`#cmList input[value="${c.id}"]`)?.checked) };
   const dest = $('#simDest').value, dur = +$('#simDur').value, delay = +$('#simDelay').value;
   body.mission_overrides = { destination: dest, duration_days: dur, communication_delay_minutes: delay };
+  const cc = crewCustom(); body.crew_overrides = Object.entries(cc).map(([id, c]) => ({ id, ...c }));
+  const evIn = $$('#evList input'), evOn = evIn.filter(x => x.checked).map(x => x.value);
+  if (evIn.length && evOn.length !== evIn.length) body.active_event_ids = evOn;
   try {
-    const isDefault = dest === 'mars_transit' && dur === 180 && delay === 22;
+    const isDefault = dest === 'mars_transit' && dur === 180 && delay === 22 && crewIsDefault() && !body.active_event_ids;
     const key = body.countermeasures.map(c => c.id).sort().join('|');
     const r = await apiOr('/api/v1/simulations/run', body, sn => sn.sims[key]);
     simData = r.data;
-    $('#crewErr').innerHTML = r.snap ? SNAP_NOTE + (isDefault ? '' : '<div class="snap-note warn">Custom destination / duration / delay need the live data link — showing the default Ares-180 mission with your countermeasures.</div>') : '';
+    $('#crewErr').innerHTML = r.snap ? SNAP_NOTE + (isDefault ? '' : '<div class="snap-note warn">Your custom crew, events, destination or duration run on the live simulation engine (data link). It is offline right now, so this shows the default Ares-180 crew with your countermeasures.</div>') : '';
     drawCrewChart(); renderCrewCards(); drawBands();
   } catch (e) { errBox($('#crewErr'), e, runCrewSim); $('#crewCards').innerHTML = ''; }
   out.dataset.ready = '1';
@@ -459,7 +501,7 @@ let ctx;
 const loaded = {};
 export function onTab(name) {
   if (name === 'myvitals') { renderHistory(); requestAnimationFrame(renderVTrend); }
-  if (name === 'crew' && !loaded.crew) { loaded.crew = 1; loadCrewControls().then(runCrewSim); }
+  if (name === 'crew' && !loaded.crew) { loaded.crew = 1; Promise.all([loadCrewControls(), renderEvents()]).then(runCrewSim); }
   else if (name === 'crew') requestAnimationFrame(() => { drawCrewChart(); });
   if (name === 'eva' && !loaded.eva) { loaded.eva = 1; loadEva(); }
   if (name === 'research') { if (!loaded.research) { loaded.research = 1; loadResearch(); } else requestAnimationFrame(drawGraph); }
@@ -475,6 +517,10 @@ export function initResearch(c) {
   $('#vTrendSel').onchange = renderVTrend;
   $('#vExport').onclick = exportHistory; $('#vImport').onclick = importHistory;
   $('#runSim').onclick = runCrewSim;
+  $('#editCrew').onclick = openCrewEditor;
+  $('#crewEdSave').onclick = saveCrewEditor;
+  $('#crewEdReset').onclick = () => { lsSet(CREW_KEY, {}); openCrewEditor(); window.dispatchEvent(new CustomEvent('beyond-horizons:crew-changed')); };
+  $('#crewEdModal').addEventListener('click', e => { if (e.target.id === 'crewEdModal') e.target.classList.add('hidden'); });
   const cv = $('#egCanvas');
   cv.onmousemove = e => { const h = graphHit(e); const id = h?.id || null; if (id !== gHover?.id) { gHover = h; drawGraph(); } cv.style.cursor = h ? 'pointer' : 'default'; };
   cv.onclick = e => showGraphDetail(graphHit(e));
@@ -495,4 +541,4 @@ export function initResearch(c) {
 
 /* shared data for the gene simulator */
 export async function getGenesData() { return (await apiOr('/api/v1/evidence/gene-expression', undefined, sn => sn.genes)).data; }
-export async function getMissionData() { return (await apiOr('/api/v1/missions/ares-180', undefined, sn => sn.mission)).data; }
+export async function getMissionData() { const d = await getSeed(); return { ...d, crew_profiles: applyCrewCustom(d.crew_profiles) }; }

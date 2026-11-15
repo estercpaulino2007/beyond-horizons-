@@ -591,3 +591,16 @@ html.zoomed,html.zoomed body{overflow:auto}
 .ai-txt p.c{color:var(--crit)} .ai-txt p.w{color:var(--warn)}
 .ai-txt{font-size:17px}
 .ai-btn,.ai-btn.alt{bottom:16px;height:38px;display:flex;align-items:center;justify-content:center}
+
+/* ================= v9: crew editor ================= */
+#evList .chk{padding:3px 20px} #evList .chk b{font-size:15px} #evList .chk small{font-size:13px}
+#editCrew{margin-top:10px}
+.crewctl{overflow:auto}
+#crewEdBody{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:6px 22px}
+.ced{border:1px solid rgba(70,175,255,.25);border-left:3px solid var(--c);border-radius:6px;padding:10px 14px;background:rgba(5,22,50,.55)}
+.ced-h{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.ced-name{font-family:Orbitron;font-size:16px;color:var(--c);background:rgba(4,20,46,.9);border:1px solid var(--line);border-radius:4px;padding:6px 8px;width:180px}
+.ced-h span{font-size:14px;color:var(--dim)}
+.ced-t{display:grid;grid-template-columns:170px 1fr 40px;align-items:center;gap:8px;font-size:14px;padding:2px 0}
+.ced-t input{accent-color:#39c6ff} .ced-t b{font-family:Mono;font-size:13px;text-align:right}
+#crewEdBody{align-content:start}

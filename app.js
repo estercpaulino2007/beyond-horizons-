@@ -8,8 +8,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { initResearch, onTab, logScan, getGenesData, getMissionData } from './research.js?v=8';
-import { chips, initSources } from './sources.js?v=8';
+import { initResearch, onTab, logScan, getGenesData, getMissionData } from './research.js?v=9';
+import { chips, initSources } from './sources.js?v=9';
 
 /* ============================================================
    CONFIG
@@ -1157,6 +1157,7 @@ async function initGeneSim() {
     gsUpdate();
   }));
   $('#gsHowBtn').onclick = gsHow;
+  addEventListener('beyond-horizons:crew-changed', async () => { try { gsim.crew = (await getMissionData()).crew_profiles; fillWho(); gsUpdate(); } catch { /* ignore */ } });
   $('#gsHowModal').addEventListener('click', e => { if (e.target.id === 'gsHowModal') e.target.classList.add('hidden'); });
   $('#gsTableBtn').onclick = () => { $('#geneTableModal').classList.remove('hidden'); onTab('genetics'); };
   $('#geneTableModal').addEventListener('click', e => { if (e.target.id === 'geneTableModal') e.target.classList.add('hidden'); });
