@@ -1,23 +1,27 @@
-# Beyond Horizons — Space Health Monitoring System (front-end demo)
+# Beyond Horizons — 3D Health HUD
 
-Static site: `index.html` + `style.css` + `app.js`, three.js vendored in `vendor/`, optimized models in `models/` (~24 MB total).
-No build step. Any static host works (Vercel, Netlify, GitHub Pages, Cloudflare Pages).
+Holographic astronaut health-monitoring console for the NASA Space Apps Challenge 2026 challenge
+*"Create Health Monitoring Software for Astronauts on Space Missions"*.
 
-## Run locally
-    python -m http.server 8080   # then open http://localhost:8080
-(Opening index.html straight from disk will NOT load the 3D models — browsers block file:// fetches.)
+**Live:** https://estercpaulino2007.github.io/beyond-horizons-/  
+**Full platform (Next.js + FastAPI):** https://beyond-horizons-ruddy.vercel.app/ (the HUD is also there under **3D Health HUD**)
 
-## Inside the Next.js monorepo
-Copy the whole folder to `apps/web/public/scan/` (or your `public/` dir) and open `/scan/index.html`,
-or embed it in a page with `<iframe src="/scan/index.html" style="width:100%;height:100vh;border:0" />`.
+## What it does
+- **Astronaut mode / Scan mode**: the suit turns into a translucent hologram and the body scan reveals skeleton, vessels, lungs, heart, abdominal organs and brain. Systems on *watch* or *alert* glow amber/red and are labelled on the model.
+- **Health scenarios** (keys `1`–`8`): nominal, hypoxia, cardiac arrhythmia, solar particle event, heat stress, bone-density loss, SANS, and **My vitals** (your own latest reading).
+- **Tabs**: Overview · Biometrics · My Vitals · Genetics · Scenarios · Crew Risk · EVA Decision · Research · Mission.
+- **Linked to the Beyond Horizons API**: vitals evaluation, Ares-180 crew-risk simulation, EVA counterfactuals, Debate Chamber, evidence graph, Research Navigator, published gene-expression data and the Beyond AI assistant.
+- **History**: vitals readings, body-scan log and AI conversation are saved in the browser (same format as the main platform), with JSON export/import.
+- **NASA SOURCES**: every threshold, rate and dataset has a clickable source tag — NASA-STD-3001 (CO₂, atmosphere, ECLSS limits), ISS radiation dose rate, MSL RAD cruise dose, NASA HRP evidence reports (bone, muscle, SANS, cardiac rhythm), the NASA Twins Study, OSDR OSD-720 (GeneLab), grant NAG9-1024 and LSDA osteoblast data.
 
-## Controls (good for the demo video)
-- `M` toggles Astronaut mode / Scan mode (or use the buttons above the hologram)
-- `1`–`6` switch health scenarios (Nominal, Hypoxia, Arrhythmia, Solar particle event, Heat stress, Bone loss)
-- Drag the hologram to rotate
-- URL params: `?mode=scan&s=1&tab=biometrics`
+Mission readings on the HUD are simulated and labelled **SIMULATED**; the NASA references set the limits, rates and evidence behind them. Research prototype · not medical advice.
 
-## Notes
-- All physiological readings are SIMULATED and labelled as such in the UI.
-- The NASA insignia is off by default (Space Apps rules restrict it). `?nasa=1` shows models/nasa.glb in the logo slot for private mock-ups only.
-- Models were compressed with gltf-transform (meshopt geometry + WebP textures, spec-gloss converted to metal-rough).
+## Controls
+Drag = rotate · scroll = zoom · right-drag = move · double-click = reset · `M` = toggle mode · `1`–`8` = scenario.
+URL parameters: `?mode=scan&s=1&tab=biometrics`.
+
+## Configuration
+`config.js` → `apiBase`: address of the Beyond Horizons API (e.g. the Render URL). The backend's `CORS_ORIGINS` must include `https://estercpaulino2007.github.io`.
+
+## Tech
+Static site, no build step: `index.html`, `style.css`, `app.js`, `research.js`, `sources.js`, three.js (vendored) and glTF models compressed with gltf-transform (meshopt + WebP). Run locally with `python -m http.server` (opening the file directly will not load the 3D models).

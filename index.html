@@ -51,12 +51,18 @@
         <span>ASTRONAUT: <b id="hdAstro">J. KELLER</b></span>
         <span class="sep"></span>
         <span class="status-pill" id="hdStatus"><i></i>STATUS: <b>STABLE</b></span>
+        <span class="sep"></span>
+        <span class="link-pill" id="hdLink"><i></i>DATA LINK: <b>…</b></span>
       </div>
       <nav class="tabs" id="tabs">
         <button class="tab active" data-tab="overview">OVERVIEW</button>
         <button class="tab" data-tab="biometrics">BIOMETRICS</button>
+        <button class="tab" data-tab="myvitals">MY VITALS</button>
         <button class="tab" data-tab="genetics">GENETICS</button>
-        <button class="tab" data-tab="simulations">SIMULATIONS</button>
+        <button class="tab" data-tab="simulations">SCENARIOS</button>
+        <button class="tab" data-tab="crew">CREW RISK</button>
+        <button class="tab" data-tab="eva">EVA DECISION</button>
+        <button class="tab" data-tab="research">RESEARCH</button>
         <button class="tab" data-tab="mission">MISSION</button>
       </nav>
     </div>
@@ -64,6 +70,8 @@
     <div class="clock panel">
       <span id="clock">2026-11-09 15:24:17 UTC</span>
     </div>
+    <button class="ai-open panel" id="aiOpen"><i></i>ASK BEYOND AI</button>
+    <button class="src-open panel" id="srcOpen"><i></i>NASA SOURCES</button>
     <button class="fs-btn panel" id="fsBtn" title="Fullscreen">
       <svg viewBox="0 0 24 24"><path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
     </button>
@@ -135,25 +143,28 @@
         <label>HEALTH SCENARIO <span class="sim-tag">SIMULATED</span></label>
         <select id="scenarioSel"></select>
       </div>
-      <div class="scan-hint" id="scanHint">DRAG TO ROTATE · M = TOGGLE MODE · 1–6 = SCENARIO</div>
+      <button class="view-reset" id="viewReset" title="Reset view">⟲ RESET VIEW</button>
+      <div class="scen-src" id="scenSrc"></div>
+      <div class="scan-hint" id="scanHint">DRAG ROTATE · SCROLL ZOOM · RIGHT-DRAG MOVE · M = MODE</div>
     </div>
 
     <!-- ENVIRONMENTAL -->
     <div class="panel env" id="pEnv">
       <h2>ENVIRONMENTAL CONDITIONS</h2>
       <div class="env-grid">
-        <div class="etile" data-e="o2"><i class="eic">O<sub>2</sub></i><b>21.0%</b><em class="d up">▲ +0.1</em></div>
-        <div class="etile" data-e="co2"><i class="eic">CO<sub>2</sub></i><b>0.30%</b><em class="d down">▼ -0.01</em></div>
-        <div class="etile" data-e="press"><i class="eic">PRESSURE</i><b>14.7 <small>psi</small></b><em class="d flat">— 0.0</em></div>
-        <div class="etile" data-e="temp"><i class="eic">CABIN TEMP</i><b>22.4 <small>°C</small></b><em class="d down">▼ -0.02</em></div>
-        <div class="etile" data-e="rad"><i class="eic">RADIATION</i><b>0.03 <small>mSv/h</small></b><em class="d down">▼ -0.002</em></div>
+        <div class="etile" data-e="o2"><i class="eic">O<sub>2</sub></i><b>21.0%</b><em class="d up">▲ +0.1</em><small class="lim">19.5–23.5%</small></div>
+        <div class="etile" data-e="co2"><i class="eic">CO<sub>2</sub></i><b>2.3 <small>mmHg</small></b><em class="d down">▼ -0.01</em><small class="lim">limit ≤ 3 mmHg</small></div>
+        <div class="etile" data-e="press"><i class="eic">PRESSURE</i><b>14.7 <small>psi</small></b><em class="d flat">— 0.0</em><small class="lim">sea-level 14.7</small></div>
+        <div class="etile" data-e="temp"><i class="eic">CABIN TEMP</i><b>22.4 <small>°C</small></b><em class="d down">▼ -0.02</em><small class="lim">limit 18–27 °C</small></div>
+        <div class="etile" data-e="rad"><i class="eic">RADIATION</i><b>0.36 <small>mSv/d</small></b><em class="d down">▼ -0.002</em><small class="lim">ISS 0.2–0.5 /d</small></div>
       </div>
       <div class="mini3d earthview" data-view="earth"></div>
+      <div class="env-src" id="envSrc"></div>
     </div>
 
     <!-- GENETIC -->
     <div class="panel genetic" id="pGen">
-      <h2>GENETIC OVERVIEW</h2>
+      <h2>GENETIC OVERVIEW</h2><div class="h-src" id="genSrc"></div>
       <div class="mini3d dnaview" data-view="dna"></div>
       <div class="gen-metrics">
         <div class="gm"><label>Expression Stability <b id="gExpr">98.1%</b></label><small>BASELINE</small><div class="bar"><i id="gExprBar" style="width:98%"></i></div></div>
@@ -164,7 +175,7 @@
 
     <!-- MISSION OVERVIEW -->
     <div class="panel missionov">
-      <h2>MISSION OVERVIEW</h2>
+      <h2>MISSION OVERVIEW</h2><div class="h-src" id="misSrc"></div>
       <div class="mini3d issview" data-view="iss"></div>
       <div class="mo-data">
         <label>Mission Elapsed</label>
@@ -176,7 +187,7 @@
 
     <!-- SYSTEMS STATUS -->
     <div class="panel systems">
-      <h2>SYSTEMS STATUS</h2>
+      <h2>SYSTEMS STATUS</h2><div class="h-src" id="sysSrc"></div>
       <div class="sys-grid" id="sysGrid">
         <div class="sys" data-sys="life"><div class="sring"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="2.2"/><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div><label>Life Support</label><b>Nominal</b></div>
         <div class="sys" data-sys="thermal"><div class="sring"><svg viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></div><label>Thermal Control</label><b>Nominal</b></div>
@@ -193,6 +204,8 @@
         <p>All systems nominal.</p>
         <p>No immediate health risks detected. Continue current mission profile.</p>
       </div>
+      <div class="ai-src" id="aiSrc"></div>
+      <button class="ai-btn alt" id="aiAsk">Ask AI</button>
       <button class="ai-btn" id="aiBtn">View Details →</button>
     </div>
   </section>
@@ -210,19 +223,20 @@
       <div class="trend" data-k="rr"><label>Respiratory rate <b></b></label><canvas></canvas></div>
     </div>
     <div class="panel ranges">
-      <h2>REFERENCE RANGES</h2>
+      <h2>REFERENCE RANGES <span class="h-src inline" id="rangeSrc"></span></h2>
       <table id="rangeTable"></table>
-      <p class="note">Ranges are general adult clinical references used to colour the readings. Readings on this demo are simulated, not from a real crew member.</p>
+      <p class="note">General adult clinical reference ranges used to colour the readings. Mission readings on this panel are simulated; your own entries live in MY VITALS.</p>
     </div>
   </section>
 
   <!-- ================= GENETICS ================= -->
   <section class="view" id="view-genetics">
-    <div class="panel big3d"><h2>GENOMIC INTEGRITY MONITOR</h2><div class="mini3d" data-view="dnabig"></div></div>
+    <div class="panel big3d gen3d"><h2>GENOMIC INTEGRITY MONITOR</h2><div class="mini3d" data-view="dnabig"></div></div>
+    <div class="panel realgenes"><h2>RADIATION GENE-EXPRESSION DATA <span class="real-tag">PUBLISHED DATA</span></h2><div class="scroll" id="realGenes"></div></div>
     <div class="panel genlist">
-      <h2>MARKERS UNDER WATCH <span class="sim-tag">SIMULATED</span></h2>
+      <h2>MARKERS UNDER WATCH <span class="sim-tag">SIMULATED</span> <span class="h-src inline" id="markSrc"></span></h2>
       <div id="geneList"></div>
-      <p class="note">Marker categories follow themes studied in NASA's Twins Study (telomere length, gene expression shifts, DNA damage response). The values shown are simulated for this demo.</p>
+      <p class="note">Marker categories follow themes studied in NASA's Twins Study (telomere length, gene expression shifts, DNA damage response). Values follow the selected mission scenario and are simulated.</p>
     </div>
   </section>
 
@@ -235,10 +249,63 @@
     <div class="panel big3d"><h2>HABITAT VIEW — ISS INTERIOR (PHOTOGRAMMETRY)</h2><div class="mini3d" data-view="issbig"></div></div>
   </section>
 
+
+  <!-- ================= MY VITALS ================= -->
+  <section class="view" id="view-myvitals">
+    <div class="panel vform">
+      <h2>MY VITALS · NEW READING</h2>
+      <form id="vForm" class="fgrid" onsubmit="return false"></form>
+      <label class="chk tohud"><input type="checkbox" id="vToHud" checked><span><b>Show on the hologram</b><small>The 3D body scan uses your reading</small></span></label>
+      <div class="vbtns"><button class="hud-btn" id="vEval">EVALUATE</button><button class="hud-btn primary" id="vSave">EVALUATE &amp; SAVE</button></div>
+    </div>
+    <div class="panel vres"><h2>EVALUATION</h2><div class="scroll" id="vResult"><p class="note">Enter your readings and press Evaluate. Results come from the Beyond Horizons rule engine (general adult resting ranges).</p></div></div>
+    <div class="panel vtrend"><h2>MY TREND <select id="vTrendSel" class="hud-sel"></select></h2><canvas id="vTrend"></canvas></div>
+    <div class="panel vhist">
+      <h2>HISTORY <span class="count" id="vHistCount">0</span></h2>
+      <div class="hist-btns"><button class="hud-btn" id="vExport">EXPORT</button><button class="hud-btn" id="vImport">IMPORT</button></div>
+      <div class="scroll vh" id="vHist"></div>
+      <h4 class="sub">BODY SCAN LOG</h4>
+      <div class="scroll sl" id="scanLog"></div>
+    </div>
+  </section>
+
+  <!-- ================= CREW RISK ================= -->
+  <section class="view" id="view-crew">
+    <div class="panel crewctl">
+      <h2>SIMULATION SETUP</h2>
+      <div class="ctl"><label>Destination</label><select id="simDest" class="hud-sel">
+        <option value="mars_transit">Mars transit</option><option value="mars_surface">Mars surface</option><option value="lunar_orbital">Lunar orbital</option><option value="lunar_orbital_surface">Lunar orbital + surface</option><option value="low_earth_orbit">Low Earth Orbit</option></select></div>
+      <div class="ctl"><label>Duration (days)</label><input id="simDur" type="number" min="10" max="1095" value="180" class="hud-in"></div>
+      <div class="ctl"><label>Comm delay (min)</label><input id="simDelay" type="number" min="0" max="1200" value="22" class="hud-in"></div>
+      <h4 class="sub">COUNTERMEASURES</h4>
+      <div id="cmList"><p class="note">Loading catalog…</p></div>
+      <button class="hud-btn primary wide" id="runSim">RUN SIMULATION</button>
+      <div class="crew-src" id="crewSrc"></div>
+      <div id="crewErr"></div>
+    </div>
+    <div class="panel crewchart" id="crewChartWrap"><h2>OPERATIONAL RISK · DAILY <span class="sim-tag">SYNTHETIC CREW</span></h2><div class="legend-row" id="crewLegend"></div><canvas id="crewChart"></canvas></div>
+    <div class="panel crewbands"><h2>DAYS PER RISK BAND</h2><div id="crewBands"></div></div>
+    <div class="panel crewcards"><h2>CREW</h2><div class="scroll" id="crewCards"></div></div>
+  </section>
+
+  <!-- ================= EVA DECISION ================= -->
+  <section class="view" id="view-eva">
+    <div class="panel evaalts"><h2>EVA DECISION · COUNTERFACTUAL COMPARISON</h2><div class="scroll" id="evaAlts"></div></div>
+    <div class="panel debate"><h2>DEBATE CHAMBER</h2><div class="scroll" id="debate"></div></div>
+  </section>
+
+  <!-- ================= RESEARCH ================= -->
+  <section class="view" id="view-research">
+    <div class="panel egraph"><h2>EVIDENCE GRAPH</h2><div class="legend-row" id="egLegend"></div><canvas id="egCanvas"></canvas><div id="egErr"></div></div>
+    <div class="panel rnav"><h2>RESEARCH NAVIGATOR · NEXT EXPERIMENTS</h2><div class="scroll" id="rankings"></div></div>
+    <div class="panel egdet"><h2>EVIDENCE DETAIL</h2><div class="scroll" id="egDetail"></div></div>
+  </section>
   <!-- ================= MISSION ================= -->
   <section class="view" id="view-mission">
     <div class="panel big3d wide"><h2>TRANSIT: EARTH → MARS</h2><div class="mini3d" data-view="transit"></div>
-      <div class="transit-hud"><div><label>Mission day</label><b id="tDay">5</b></div><div><label>Phase</label><b>Low Earth Orbit ops</b></div><div><label>Crew</label><b>4</b></div></div>
+      <div class="transit-hud"><div><label>Mission day</label><b id="tDay">5</b></div><div><label>Phase</label><b>Low Earth Orbit ops</b></div><div><label>Crew</label><b>4</b></div>
+        <div><label>Mars cruise GCR dose (measured)</label><b>1.8 mSv/day</b></div><div><label>Transit dose, round trip</label><b>≈ 0.66 Sv</b></div><div><label>ISS dose rate</label><b>0.2–0.5 mSv/day</b></div></div>
+      <div class="transit-src" id="transitSrc"></div>
     </div>
     <div class="panel timeline">
       <h2>MISSION TIMELINE</h2>
@@ -261,10 +328,32 @@
     <button class="modal-x" id="modalX">✕</button>
     <h2 id="mdTitle">AI INSIGHTS — DETAILS</h2>
     <div id="mdBody"></div>
-    <p class="note">Rule-based demo engine running on simulated readings. Not a medical device.</p>
+    <p class="note">Rule-based monitoring engine · simulated mission readings · not for clinical use.</p>
   </div>
 </div>
 
+<!-- NASA sources -->
+<div id="srcModal" class="modal hidden">
+  <div class="modal-box panel src-box">
+    <button class="modal-x" id="srcX">✕</button>
+    <h2>NASA SOURCES &amp; REFERENCES</h2>
+    <p class="note">Every limit, rate and dataset the platform relies on, with the place it is used. Mission readings shown on the HUD remain simulated; these references set the thresholds, rates and evidence behind them.</p>
+    <div id="srcBody"></div>
+  </div>
+</div>
+
+<!-- AI chat -->
+<div id="chatModal" class="modal hidden">
+  <div class="modal-box panel chat-box">
+    <button class="modal-x" id="chatX">✕</button>
+    <h2>BEYOND AI <span class="chat-state" id="chatState"></span></h2>
+    <div id="chatLog"></div>
+    <div class="chat-in"><textarea id="chatIn" rows="2" placeholder="Ask about the crew, the scan, your vitals or the evidence…"></textarea><button class="hud-btn primary" id="chatSend">SEND</button></div>
+    <p class="note">Grounded in this platform's mission, evidence and vitals data · conversation saved in this browser · <a href="#" id="chatClear">clear</a></p>
+  </div>
+</div>
+
+<script src="config.js"></script>
 <script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
 <script type="module" src="app.js"></script>
 </body>

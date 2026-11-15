@@ -1,0 +1,472 @@
+// Beyond Horizons HUD — research tabs linked to the Beyond Horizons API (FastAPI backend)
+// Shares localStorage keys with the Next.js app, so history is common when both run on the same domain.
+
+const KEYS = {
+  vitals: 'beyond-horizons:vitals-history',      // same key + record format as frontend/lib/vitalsStore.ts
+  scans: 'beyond-horizons:scan-history',
+  chat: 'beyond-horizons:assistant-chat',
+  api: 'beyond-horizons:api-base',
+};
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable */ } };
+const pct = v => (v * 100).toFixed(0) + '%';
+const ST_CLS = { normal: 'ok', attention: 'warn', alert: 'crit', low: 'ok', moderate: 'warn', high: 'crit', critical: 'crit' };
+const ST_TXT = { normal: 'NORMAL', attention: 'ATTENTION', alert: 'ALERT' };
+
+/* ---------------- API link ---------------- */
+function resolveApi() {
+  const q = new URLSearchParams(location.search).get('api');
+  if (q !== null) { const v = q.replace(/\/+$/, ''); try { v ? localStorage.setItem(KEYS.api, v) : localStorage.removeItem(KEYS.api); } catch { /* ignore */ } if (v) return v; }
+  try { const s = localStorage.getItem(KEYS.api); if (s) return s; } catch { /* ignore */ }
+  return (window.BH_CONFIG?.apiBase || '').replace(/\/+$/, '');
+}
+const API = resolveApi();
+let linkState = 'idle';
+function setLink(s, txt) {
+  linkState = s;
+  const el = $('#hdLink'); if (!el) return;
+  el.className = 'link-pill ' + s;
+  el.querySelector('b').textContent = txt;
+}
+async function api(path, body) {
+  if (!API) throw new Error('No data link configured. Set apiBase in config.js (or open the page with ?api=https://your-backend).');
+  let r;
+  try {
+    r = await fetch(API + path, body === undefined ? { cache: 'no-store' } : { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  } catch {
+    setLink('off', 'OFFLINE');
+    throw new Error(`Could not reach the Beyond Horizons API (${API}). If it is hosted on a free tier it may be waking up — try again in ~30 s.`);
+  }
+  if (!r.ok) {
+    let d = null; try { d = (await r.json()).detail; } catch { /* ignore */ }
+    if (Array.isArray(d)) d = d.map(x => x.msg || JSON.stringify(x)).join('; ');
+    throw new Error(typeof d === 'string' && d ? d : `${r.status} ${r.statusText}`);
+  }
+  setLink('on', 'ONLINE');
+  return r.json();
+}
+async function checkLink() {
+  if (!API) { setLink('off', 'NOT SET'); return; }
+  setLink('wait', 'CONNECTING…');
+  const slow = setTimeout(() => linkState === 'wait' && setLink('wait', 'WAKING UP…'), 4000);
+  try { const r = await fetch(API + '/health', { cache: 'no-store' }); setLink(r.ok ? 'on' : 'off', r.ok ? 'ONLINE' : 'ERROR'); }
+  catch { setLink('off', 'OFFLINE'); }
+  clearTimeout(slow);
+}
+function errBox(el, e, retry) {
+  el.innerHTML = `<div class="api-err"><b>DATA LINK ERROR</b><p>${esc(e.message)}</p>${retry ? '<button class="hud-btn retry">RETRY</button>' : ''}</div>`;
+  if (retry) el.querySelector('.retry').onclick = retry;
+}
+const loading = (el, t = 'LOADING FROM DATA LINK…') => { el.innerHTML = `<div class="api-wait"><i></i>${t}</div>`; };
+
+/* ---------------- local fallback (same rules as backend/app/domain/vitals_reference.py) ---------------- */
+function localEvaluate(e) {
+  const rng = (id, label, cat, v, unit, nl, nh, al, ah, ref) => {
+    let status = 'normal', note = `${v} ${unit} is within the ${ref} resting range.`;
+    if (v < al || v > ah) { status = 'alert'; note = `${v} ${unit} is outside the ${ref} resting range and well beyond the usual attention margin.`; }
+    else if (v < nl || v > nh) { status = 'attention'; note = `${v} ${unit} is just outside the ${ref} resting range -- worth watching, not yet urgent.`; }
+    return { metric_id: id, label, category: cat, value: v, unit, status, reference_range: ref, note, recommendations: [] };
+  };
+  const well = (id, label, cat, v, unit, low, ref, ok, bad) => ({ metric_id: id, label, category: cat, value: v, unit, status: v >= low ? 'normal' : 'attention', reference_range: ref, note: v >= low ? ok : bad, recommendations: [] });
+  const m = [
+    rng('heart_rate', 'Heart rate', 'cardiac', e.heart_rate_bpm, 'bpm', 60, 100, 50, 110, '60-100 bpm'),
+    { metric_id: 'heart_rhythm', label: 'Heart rhythm', category: 'cardiac', value: e.heart_rhythm === 'regular' ? 1 : 0, unit: '', status: e.heart_rhythm === 'regular' ? 'normal' : 'attention', reference_range: 'self-reported (no ECG sensor available)', note: e.heart_rhythm === 'regular' ? 'Reported as regular.' : 'Reported as irregular -- no ECG sensor, so this only records that you noticed it.', recommendations: [] },
+    rng('spo2', 'Blood oxygen (SpO2)', 'respiratory', e.spo2_percent, '%', 95, 100, 90, 100, '95-100%'),
+    rng('respiratory_rate', 'Respiratory rate', 'respiratory', e.respiratory_rate_bpm, 'breaths/min', 12, 20, 10, 24, '12-20 breaths/min'),
+    rng('body_temp', 'Body temperature', 'temperature', e.body_temp_c, '°C', 36.1, 37.2, 35.5, 38.0, '36.1-37.2°C'),
+    well('sleep', 'Sleep duration', 'sleep_fatigue', e.sleep_hours, 'h', 7, '7-9 h (CDC adult recommendation)', `${e.sleep_hours} h meets the general adult recommendation (7-9 h).`, `${e.sleep_hours} h is below the general adult recommendation (7-9 h).`),
+    well('sleep_quality', 'Sleep quality', 'sleep_fatigue', e.sleep_quality, '/5', 3, 'self-reported, 3/5 or higher', `Self-rated sleep quality ${e.sleep_quality}/5 is reasonable.`, `Self-rated sleep quality ${e.sleep_quality}/5 is low.`),
+    { metric_id: 'stress', label: 'Stress level', category: 'sleep_fatigue', value: e.stress_level, unit: '/10', status: e.stress_level <= 3 ? 'normal' : 'attention', reference_range: 'self-reported, lower is better', note: e.stress_level <= 3 ? `Self-reported stress ${e.stress_level}/10 is on the lower end.` : `Self-reported stress ${e.stress_level}/10 is elevated.`, recommendations: [] },
+    well('activity', 'Physical activity', 'activity_muscle', e.activity_minutes, 'min', 20, '~20+ min/day (WHO weekly guidance averaged daily)', `${e.activity_minutes} min meets the rough daily WHO average.`, `${e.activity_minutes} min is below the rough daily WHO average.`),
+    well('hydration', 'Hydration', 'hydration_other', e.hydration_level, '/10', 6, 'self-reported, 6/10 or higher', `Self-estimated hydration ${e.hydration_level}/10 looks adequate.`, `Self-estimated hydration ${e.hydration_level}/10 is on the low side.`),
+  ];
+  const rank = { normal: 0, attention: 1, alert: 2 };
+  const overall = m.reduce((a, x) => rank[x.status] > rank[a] ? x.status : a, 'normal');
+  const bad = m.filter(x => x.status !== 'normal');
+  return { overall_status: overall, metrics: m, insights: bad.length ? bad.map(x => x.note) : ['All monitored indicators are within expected resting ranges for this entry.'],
+    reference_source: 'CLINICAL-VITALS-REFERENCE (evaluated in-browser, data link offline)', limitations: ['General adult resting reference ranges, not spaceflight-specific thresholds.', 'Not medical advice.'], local: true };
+}
+
+/* ---------------- MY VITALS ---------------- */
+const FIELDS = [
+  ['heart_rate_bpm', 'Heart rate', 'bpm', 72, 20, 250, 1],
+  ['spo2_percent', 'SpO₂', '%', 98, 50, 100, 0.1],
+  ['body_temp_c', 'Body temperature', '°C', 36.7, 30, 43, 0.1],
+  ['respiratory_rate_bpm', 'Respiratory rate', 'br/min', 16, 4, 60, 1],
+  ['sleep_hours', 'Sleep (last 24 h)', 'h', 7.5, 0, 24, 0.5],
+  ['sleep_quality', 'Sleep quality', '1–5', 4, 1, 5, 1],
+  ['stress_level', 'Stress', '0–10', 3, 0, 10, 1],
+  ['activity_minutes', 'Activity', 'min', 30, 0, 600, 5],
+  ['hydration_level', 'Hydration', '0–10', 7, 0, 10, 1],
+  ['body_mass_kg', 'Body mass (optional)', 'kg', '', 20, 250, 0.1],
+];
+let lastEval = null, lastEntry = null;
+function buildVitalsForm() {
+  $('#vForm').innerHTML = FIELDS.map(([k, l, u, d, mn, mx, st]) =>
+    `<label class="fld"><span>${l} <em>${u}</em></span><input type="number" name="${k}" value="${d}" min="${mn}" max="${mx}" step="${st}"></label>`).join('') +
+    `<label class="fld"><span>Heart rhythm <em>self-reported</em></span><select name="heart_rhythm"><option value="regular">Regular</option><option value="irregular">Irregular</option></select></label>`;
+  $('#vEval').onclick = () => evaluateForm(false);
+  $('#vSave').onclick = () => evaluateForm(true);
+}
+function readForm() {
+  const f = $('#vForm'), e = {};
+  for (const [k, , , , mn, mx] of FIELDS) {
+    const raw = f.querySelector(`[name="${k}"]`).value;
+    if (raw === '' && k === 'body_mass_kg') { e[k] = null; continue; }
+    const v = Number(raw);
+    if (!Number.isFinite(v) || v < mn || v > mx) throw new Error(`${k.replace(/_/g, ' ')} must be between ${mn} and ${mx}.`);
+    e[k] = ['sleep_quality', 'stress_level', 'hydration_level'].includes(k) ? Math.round(v) : v;
+  }
+  e.heart_rhythm = f.querySelector('[name="heart_rhythm"]').value;
+  return e;
+}
+async function evaluateForm(save) {
+  const out = $('#vResult');
+  let entry; try { entry = readForm(); } catch (e) { errBox(out, e); return; }
+  loading(out, 'EVALUATING…');
+  let ev;
+  try { ev = await api('/api/v1/vitals/evaluate', entry); }
+  catch (e) { ev = localEvaluate(entry); ev.linkError = e.message; }
+  lastEval = ev; lastEntry = entry;
+  renderEval(ev);
+  if (save) {
+    const rec = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, recorded_at: new Date().toISOString(), entry, evaluation: ev };
+    const h = lsGet(KEYS.vitals, []); h.push(rec); h.sort((a, b) => a.recorded_at.localeCompare(b.recorded_at));
+    lsSet(KEYS.vitals, h.slice(-180));
+    window.dispatchEvent(new CustomEvent('beyond-horizons:vitals-changed'));
+    renderHistory(); renderVTrend();
+  }
+  if ($('#vToHud').checked) ctx.applySelfVitals(entry, ev);
+}
+function renderEval(ev) {
+  const c = ST_CLS[ev.overall_status];
+  $('#vResult').innerHTML = `
+    <div class="v-overall ${c}"><span>OVERALL</span><b>${ST_TXT[ev.overall_status]}</b>${ev.local ? '<em>evaluated in-browser · data link offline</em>' : '<em>evaluated by Beyond Horizons API</em>'}</div>
+    <div class="v-metrics">${ev.metrics.map(m => `<div class="vm ${ST_CLS[m.status]}"><label>${esc(m.label)}</label><b>${m.metric_id === 'heart_rhythm' ? (m.value ? 'Regular' : 'Irregular') : esc(m.value) + ' <small>' + esc(m.unit) + '</small>'}</b><span>${ST_TXT[m.status]}</span><small class="ref">${esc(m.reference_range)}</small></div>`).join('')}</div>
+    <h4>INSIGHTS</h4><ul class="v-ins">${ev.insights.map(i => `<li>${esc(i)}</li>`).join('')}</ul>
+    ${ev.metrics.some(m => m.recommendations?.length) ? `<h4>SUGGESTED ACTIONS</h4><ul class="v-ins">${ev.metrics.flatMap(m => (m.recommendations || []).map(r => `<li><b class="${ST_CLS[m.status]}">${esc(m.label)}:</b> ${esc(r)}</li>`)).join('')}</ul>` : ''}
+    <p class="note">${esc(ev.reference_source)} — general adult resting ranges, not spaceflight-specific; not medical advice.</p>`;
+}
+function renderHistory() {
+  const h = lsGet(KEYS.vitals, []);
+  $('#vHistCount').textContent = h.length;
+  $('#vHist').innerHTML = h.length ? `<table><tr><th>DATE</th><th>STATUS</th><th>HR</th><th>SpO₂</th><th>TEMP</th><th></th></tr>${h.slice().reverse().map(r => {
+    const e = r.entry, s = r.evaluation?.overall_status || 'normal';
+    return `<tr data-id="${esc(r.id)}"><td>${new Date(r.recorded_at).toLocaleString()}</td><td class="${ST_CLS[s]}">${ST_TXT[s]}</td><td>${e.heart_rate_bpm}</td><td>${e.spo2_percent}</td><td>${e.body_temp_c}</td><td><button class="mini-btn hud" title="Show on hologram">◉</button><button class="mini-btn del" title="Delete">✕</button></td></tr>`;
+  }).join('')}</table>` : '<p class="note">No entries yet. Evaluate and save your first reading.</p>';
+  $$('#vHist tr[data-id]').forEach(tr => {
+    const rec = () => lsGet(KEYS.vitals, []).find(r => r.id === tr.dataset.id);
+    tr.querySelector('.del').onclick = () => { lsSet(KEYS.vitals, lsGet(KEYS.vitals, []).filter(r => r.id !== tr.dataset.id)); renderHistory(); renderVTrend(); };
+    tr.querySelector('.hud').onclick = () => { const r = rec(); if (r) { ctx.applySelfVitals(r.entry, r.evaluation); ctx.goTab('overview'); } };
+  });
+  const scans = lsGet(KEYS.scans, []);
+  $('#scanLog').innerHTML = scans.length ? scans.slice().reverse().slice(0, 40).map(s =>
+    `<div class="slog ${s.level}"><span>${new Date(s.at).toLocaleString()}</span><b>${esc(s.scenario)}</b><em>${s.level === 'ok' ? 'STABLE' : s.level === 'warn' ? 'WARNING' : 'CRITICAL'}</em><small>HR ${s.v.hr} · SpO₂ ${s.v.spo2}% · ${s.v.temp}°C</small></div>`).join('') : '<p class="note">Completed body scans are logged here automatically.</p>';
+}
+const TREND_METRICS = { heart_rate_bpm: ['Heart rate', 'bpm', [60, 100]], spo2_percent: ['SpO₂', '%', [95, 100]], body_temp_c: ['Body temperature', '°C', [36.1, 37.2]], respiratory_rate_bpm: ['Respiratory rate', 'br/min', [12, 20]], sleep_hours: ['Sleep', 'h', [7, 9]] };
+function renderVTrend() {
+  const cv = $('#vTrend'), k = $('#vTrendSel').value, [, unit, ok] = TREND_METRICS[k];
+  const r = cv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
+  cv.width = Math.max(10, r.width * dpr); cv.height = Math.max(10, r.height * dpr);
+  const g = cv.getContext('2d'), W = cv.width, H = cv.height; g.clearRect(0, 0, W, H);
+  const pts = lsGet(KEYS.vitals, []).map(x => x.entry[k]).filter(v => typeof v === 'number');
+  g.font = `${14 * dpr}px Rajdhani`; g.fillStyle = '#7ea6c8';
+  if (pts.length < 2) { g.fillText(pts.length ? 'Save one more reading to draw a trend.' : 'No saved readings yet.', 20 * dpr, H / 2); return; }
+  const lo = Math.min(ok[0], ...pts) * 0.98, hi = Math.max(ok[1], ...pts) * 1.02, Y = v => H - 20 * dpr - (v - lo) / (hi - lo) * (H - 40 * dpr), X = i => 40 * dpr + i / (pts.length - 1) * (W - 60 * dpr);
+  g.fillStyle = 'rgba(45,255,138,0.07)'; g.fillRect(40 * dpr, Y(ok[1]), W - 60 * dpr, Y(ok[0]) - Y(ok[1]));
+  g.fillStyle = '#7ea6c8'; g.fillText(`${hi.toFixed(1)} ${unit}`, 4 * dpr, 16 * dpr); g.fillText(lo.toFixed(1), 4 * dpr, H - 6 * dpr);
+  g.beginPath(); pts.forEach((v, i) => i ? g.lineTo(X(i), Y(v)) : g.moveTo(X(i), Y(v)));
+  g.strokeStyle = '#39c6ff'; g.lineWidth = 2.5 * dpr; g.shadowColor = '#39c6ff'; g.shadowBlur = 8; g.stroke(); g.shadowBlur = 0;
+  pts.forEach((v, i) => { g.fillStyle = v < ok[0] || v > ok[1] ? '#ffb020' : '#fff'; g.beginPath(); g.arc(X(i), Y(v), 3.5 * dpr, 0, 7); g.fill(); });
+}
+function exportHistory() {
+  const data = { exported_at: new Date().toISOString(), vitals: lsGet(KEYS.vitals, []), scans: lsGet(KEYS.scans, []), chat: lsGet(KEYS.chat, []) };
+  const text = JSON.stringify(data, null, 1);
+  const done = () => toast('History copied to clipboard — paste it into Import on the other site.');
+  try {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    a.download = 'beyond-horizons-history.json'; a.click(); toast('History file downloaded.');
+  } catch { navigator.clipboard?.writeText(text).then(done).catch(() => {}); }
+}
+function importHistory() {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = async () => {
+    try {
+      const d = JSON.parse(await inp.files[0].text());
+      const merge = (key, list) => { if (!Array.isArray(list)) return 0; const cur = lsGet(key, []); const ids = new Set(cur.map(x => x.id || x.at)); const add = list.filter(x => !ids.has(x.id || x.at)); lsSet(key, cur.concat(add).sort((a, b) => String(a.recorded_at || a.at).localeCompare(String(b.recorded_at || b.at)))); return add.length; };
+      const n = merge(KEYS.vitals, Array.isArray(d) ? d : d.vitals) + merge(KEYS.scans, d.scans);
+      if (Array.isArray(d.chat) && !lsGet(KEYS.chat, []).length) lsSet(KEYS.chat, d.chat);
+      renderHistory(); renderVTrend(); toast(`Imported ${n} new records.`);
+    } catch (e) { toast('Import failed: ' + e.message); }
+  };
+  inp.click();
+}
+function toast(t) {
+  let el = $('#toast'); if (!el) { el = document.createElement('div'); el.id = 'toast'; document.body.appendChild(el); }
+  el.textContent = t; el.classList.add('show'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+/* ---------------- CREW RISK (simulation engine) ---------------- */
+const CREW_COL = ['#39c6ff', '#2dff8a', '#ffb020', '#c78bff'];
+let simData = null, catalog = null;
+async function loadCrewControls() {
+  try {
+    catalog = await api('/api/v1/countermeasures/catalog');
+    $('#cmList').innerHTML = catalog.map(c => `<label class="chk"><input type="checkbox" value="${esc(c.id)}"><span><b>${esc(c.name)}</b><small>${esc(c.target_risk.replace(/_/g, ' '))}</small></span></label>`).join('');
+  } catch (e) { $('#cmList').innerHTML = `<p class="note">${esc(e.message)}</p>`; }
+}
+async function runCrewSim() {
+  const out = $('#crewChartWrap'); loading($('#crewCards'), 'RUNNING SIMULATION ENGINE…');
+  const body = { mission_id: 'ares-180', countermeasures: (catalog || []).filter(c => $(`#cmList input[value="${c.id}"]`)?.checked) };
+  const dest = $('#simDest').value, dur = +$('#simDur').value, delay = +$('#simDelay').value;
+  body.mission_overrides = { destination: dest, duration_days: dur, communication_delay_minutes: delay };
+  try {
+    simData = await api('/api/v1/simulations/run', body);
+    $('#crewErr').innerHTML = '';
+    drawCrewChart(); renderCrewCards(); drawBands();
+  } catch (e) { errBox($('#crewErr'), e, runCrewSim); $('#crewCards').innerHTML = ''; }
+  out.dataset.ready = '1';
+}
+function canvasCtx(cv) {
+  const r = cv.getBoundingClientRect(), dpr = Math.min(devicePixelRatio, 2);
+  cv.width = Math.max(10, r.width * dpr); cv.height = Math.max(10, r.height * dpr);
+  return [cv.getContext('2d'), cv.width, cv.height, dpr];
+}
+function drawCrewChart() {
+  if (!simData) return;
+  const [g, W, H, d] = canvasCtx($('#crewChart')); g.clearRect(0, 0, W, H);
+  const L = 50 * d, R = 20 * d, T = 20 * d, B = 36 * d, days = simData.mission.duration_days;
+  const X = day => L + (day - 1) / Math.max(1, days - 1) * (W - L - R), Y = v => T + (1 - v) * (H - T - B);
+  const bands = [[0, 0.3, 'rgba(45,255,138,0.05)'], [0.3, 0.55, 'rgba(255,176,32,0.05)'], [0.55, 0.75, 'rgba(255,120,40,0.07)'], [0.75, 1, 'rgba(255,59,78,0.08)']];
+  bands.forEach(([a, b, c]) => { g.fillStyle = c; g.fillRect(L, Y(b), W - L - R, Y(a) - Y(b)); });
+  g.font = `${13 * d}px Rajdhani`; g.fillStyle = '#7ea6c8'; g.strokeStyle = 'rgba(57,198,255,0.12)'; g.lineWidth = 1;
+  for (let v = 0; v <= 1.001; v += 0.25) { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(W - R, Y(v)); g.stroke(); g.fillText(v.toFixed(2), 8 * d, Y(v) + 4 * d); }
+  for (let day = 0; day <= days; day += Math.ceil(days / 6 / 10) * 10 || 30) { g.fillText('D' + Math.max(1, day), X(Math.max(1, day)) - 10 * d, H - 12 * d); }
+  (simData.events || []).forEach?.(() => {});
+  simData.trajectories.forEach((t, i) => {
+    g.beginPath(); t.risk_results.forEach((r, j) => { const x = X(r.day), y = Y(r.scores.operational_risk); j ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.strokeStyle = CREW_COL[i % 4]; g.lineWidth = 2.4 * d; g.shadowColor = CREW_COL[i % 4]; g.shadowBlur = 6; g.stroke(); g.shadowBlur = 0;
+    t.vulnerability_windows.forEach(w => { g.fillStyle = w.severity === 'critical' ? 'rgba(255,59,78,0.5)' : 'rgba(255,176,32,0.45)'; g.fillRect(X(w.day_start), H - B + 4 * d + i * 5 * d, Math.max(2, X(w.day_end) - X(w.day_start)), 4 * d); });
+  });
+  $('#crewLegend').innerHTML = simData.trajectories.map((t, i) => `<span><i style="background:${CREW_COL[i % 4]}"></i>${esc(t.display_name)}</span>`).join('') + '<span class="note-inline">bars under the axis = vulnerability windows</span>';
+}
+function drawBands() {
+  if (!simData) return;
+  const order = ['low', 'moderate', 'high', 'critical'], col = { low: '#2dff8a', moderate: '#ffd25a', high: '#ff8a3a', critical: '#ff3b4e' };
+  $('#crewBands').innerHTML = simData.trajectories.map(t => {
+    const c = simData.band_day_counts[t.crew_id] || {}, tot = order.reduce((a, k) => a + (c[k] || 0), 0) || 1;
+    return `<div class="bandrow"><label>${esc(t.display_name)}</label><div class="stack">${order.map(k => c[k] ? `<i style="width:${c[k] / tot * 100}%;background:${col[k]}" title="${k}: ${c[k]} days"></i>` : '').join('')}</div><small>${order.map(k => `${k[0].toUpperCase()}:${c[k] || 0}`).join(' ')}</small></div>`;
+  }).join('') + `<div class="band-key">${order.map(k => `<span><i style="background:${col[k]}"></i>${k}</span>`).join('')}</div>`;
+}
+function renderCrewCards() {
+  const prof = Object.fromEntries((simData.crew_profiles || []).map(p => [p.id, p]));
+  $('#crewCards').innerHTML = simData.trajectories.map((t, i) => {
+    const p = prof[t.crew_id] || {}, peak = t.risk_results.reduce((a, r) => r.scores.operational_risk > a.scores.operational_risk ? r : a, t.risk_results[0]);
+    return `<div class="crew" style="--c:${CREW_COL[i % 4]}"><h3>${esc(t.display_name)} <small>${esc(p.role || '')}</small></h3>
+      <p>${esc(p.primary_vulnerability || '')}</p>
+      <div class="kv"><span>Peak operational risk</span><b class="${ST_CLS[peak.band]}">${pct(peak.scores.operational_risk)} · D${peak.day}</b></div>
+      <div class="kv"><span>Top drivers</span><b>${peak.top_drivers.slice(0, 2).map(x => esc(x.name)).join(', ')}</b></div>
+      <div class="kv"><span>Vulnerability windows</span><b>${t.vulnerability_windows.map(w => `D${w.day_start}–${w.day_end}`).join(', ') || 'none'}</b></div></div>`;
+  }).join('') + `<p class="note">${esc(simData.disclaimer)} Synthetic crew profiles.</p>`;
+}
+
+/* ---------------- EVA DECISION + DEBATE ---------------- */
+async function loadEva() {
+  const a = $('#evaAlts'), b = $('#debate');
+  loading(a); loading(b);
+  try {
+    const cf = await api('/api/v1/counterfactual/compare', { mission_id: 'ares-180' });
+    const best = cf.alternatives.reduce((x, y) => y.eva_completion_probability > x.eva_completion_probability ? y : x);
+    const bar = (l, v, bad) => `<div class="mbar"><label>${l}<b>${pct(v)}</b></label><div class="bar"><i class="${bad ? (v > 0.55 ? 'crit' : v > 0.35 ? 'warn' : '') : ''}" style="width:${v * 100}%"></i></div></div>`;
+    a.innerHTML = cf.alternatives.map(x => `<div class="alt ${x === best ? 'best' : ''}"><h3><span>${x.alternative}</span>${esc(x.description.split(':')[0])}</h3><p>${esc(x.description.split(':').slice(1).join(':').trim())}</p>
+      <div class="kv"><span>EVA crew · day</span><b>${esc(x.eva_crew_id)} · D${x.eva_day}</b></div>
+      ${bar('EVA completion probability', x.eva_completion_probability)}${bar('Peak operational risk', x.peak_operational_risk, 1)}${bar('Peak cognitive risk', x.peak_cognitive_risk, 1)}${bar('Peak musculoskeletal risk', x.peak_musculoskeletal_risk, 1)}${bar('Mean uncertainty', x.mean_uncertainty, 1)}
+      <small>Drivers: ${x.top_drivers.map(esc).join(', ')}</small></div>`).join('') + `<p class="note">${esc(cf.language_note)}</p>`;
+  } catch (e) { errBox(a, e, loadEva); }
+  try {
+    const d = await api('/api/v1/debate/ares-180');
+    const ROLE = { mission_commander: 'MISSION COMMANDER', flight_surgeon: 'FLIGHT SURGEON', science_officer: 'SCIENCE OFFICER', skeptic: 'SKEPTIC' };
+    b.innerHTML = `<p class="deb-day">Decision point: EVA on day ${d.day} · alternatives ${d.alternatives.join(' / ')}</p>` + d.recommendations.map(r => `<div class="role ${r.role}"><h3>${ROLE[r.role] || esc(r.role)}<span class="rec">${r.recommendation ? 'RECOMMENDS ' + r.recommendation : 'NO VOTE'}</span></h3>
+      <p>${esc(r.justification)}</p>${r.confidence != null ? `<small>Confidence ${pct(r.confidence)}${r.utility != null ? ' · utility ' + r.utility.toFixed(3) : ''}</small>` : ''}
+      ${r.limitations?.length ? `<details><summary>Limitations</summary><ul>${r.limitations.map(l => `<li>${esc(l)}</li>`).join('')}</ul></details>` : ''}</div>`).join('') +
+      (d.disagreement_summary ? `<p class="note">${esc(d.disagreement_summary)}</p>` : '') + `<p class="note">${esc(d.disclaimer)}</p>`;
+  } catch (e) { errBox(b, e, loadEva); }
+}
+
+/* ---------------- RESEARCH: evidence graph + navigator ---------------- */
+const LV_COL = { supported_evidence: '#2dff8a', data_supported_association: '#39c6ff', exploratory_hypothesis: '#ffb020', synthetic_parameter: '#c78bff' };
+const LV_TXT = { supported_evidence: 'Supported evidence', data_supported_association: 'Data-supported association', exploratory_hypothesis: 'Exploratory hypothesis', synthetic_parameter: 'Synthetic parameter' };
+let graph = null, gLayout = null, gHover = null;
+async function loadResearch() {
+  loading($('#rankings')); $('#egDetail').innerHTML = '<p class="note">Click a node or a link in the graph to see its evidence, source and limitations.</p>';
+  try {
+    graph = await api('/api/v1/evidence/graph');
+    layoutGraph(); drawGraph();
+    $('#egLegend').innerHTML = Object.keys(LV_COL).map(k => `<span><i style="background:${LV_COL[k]}"></i>${LV_TXT[k]}</span>`).join('');
+  } catch (e) { errBox($('#egErr'), e, loadResearch); }
+  try {
+    const r = await api('/api/v1/research-navigator/rankings');
+    const mx = Math.max(...r.proposals.map(p => p.priority));
+    $('#rankings').innerHTML = `<p class="formula">${esc(r.priority_formula)}</p>` + r.proposals.map((p, i) => `<div class="prop"><h3><span>#${i + 1}</span>${esc(p.title)}<b>${p.priority.toFixed(3)}</b></h3><div class="bar"><i style="width:${p.priority / mx * 100}%"></i></div>
+      <p>${esc(p.gap_description)}</p><small>impact ${p.mission_impact} · uncertainty ${p.uncertainty} · info gain ${p.expected_information_gain} · cost ${p.relative_cost}</small>
+      ${p.limitations?.length ? `<details><summary>Limitations</summary><ul>${p.limitations.map(l => `<li>${esc(l)}</li>`).join('')}</ul></details>` : ''}</div>`).join('') + `<p class="note">${esc(r.language_note)}</p>`;
+  } catch (e) { errBox($('#rankings'), e, loadResearch); }
+}
+function layoutGraph() {
+  const nodes = graph.elements.nodes.map(n => n.data), edges = graph.elements.edges.map(e => e.data);
+  // layered layout: depth = longest path from a source node
+  const inc = Object.fromEntries(nodes.map(n => [n.id, 0])); edges.forEach(e => inc[e.target]++);
+  const depth = Object.fromEntries(nodes.map(n => [n.id, 0]));
+  for (let it = 0; it < nodes.length; it++) edges.forEach(e => { depth[e.target] = Math.max(depth[e.target], depth[e.source] + 1); });
+  const cols = {}; nodes.forEach(n => (cols[depth[n.id]] ||= []).push(n));
+  const nc = Object.keys(cols).length;
+  const pos = {};
+  Object.entries(cols).forEach(([c, list]) => list.forEach((n, i) => { pos[n.id] = { x: (+c + 0.5) / nc, y: (i + 0.5) / list.length }; }));
+  gLayout = { nodes, edges, pos };
+}
+function drawGraph() {
+  if (!gLayout) return;
+  const cv = $('#egCanvas'), [g, W, H, d] = canvasCtx(cv); g.clearRect(0, 0, W, H);
+  const P = id => ({ x: 70 * d + gLayout.pos[id].x * (W - 140 * d), y: 30 * d + gLayout.pos[id].y * (H - 60 * d) });
+  gLayout.screen = { P, d };
+  gLayout.edges.forEach(e => {
+    const a = P(e.source), b = P(e.target), hot = gHover && (gHover.id === e.id || gHover.id === e.source || gHover.id === e.target);
+    g.strokeStyle = LV_COL[e.evidence_level] || '#888'; g.globalAlpha = gHover && !hot ? 0.2 : 0.9;
+    g.lineWidth = (1 + e.weight * 3) * d; g.setLineDash(e.evidence_level === 'exploratory_hypothesis' || e.evidence_level === 'synthetic_parameter' ? [6 * d, 5 * d] : []);
+    g.beginPath(); g.moveTo(a.x, a.y); const mx = (a.x + b.x) / 2; g.bezierCurveTo(mx, a.y, mx, b.y, b.x, b.y); g.stroke();
+    const ang = Math.atan2(b.y - a.y, b.x - mx); g.setLineDash([]); g.fillStyle = g.strokeStyle;
+    g.beginPath(); g.moveTo(b.x - 14 * d, b.y); g.lineTo(b.x - 24 * d, b.y - 5 * d); g.lineTo(b.x - 24 * d, b.y + 5 * d); g.fill();
+  });
+  g.globalAlpha = 1; g.setLineDash([]);
+  g.font = `600 ${14 * d}px Rajdhani`; g.textAlign = 'center';
+  gLayout.nodes.forEach(n => {
+    const p = P(n.id), hot = gHover && gHover.id === n.id;
+    g.fillStyle = hot ? 'rgba(57,198,255,0.45)' : 'rgba(6,26,56,0.92)'; g.strokeStyle = '#39c6ff'; g.lineWidth = 1.5 * d;
+    const w = g.measureText(n.label).width + 20 * d, h = 26 * d;
+    g.beginPath(); g.roundRect(p.x - w / 2, p.y - h / 2, w, h, 5 * d); g.fill(); g.stroke();
+    g.fillStyle = '#eaf6ff'; g.fillText(n.label, p.x, p.y + 5 * d);
+    n._box = { x: p.x - w / 2, y: p.y - h / 2, w, h };
+  });
+}
+function graphHit(ev) {
+  if (!gLayout?.screen) return null;
+  const cv = $('#egCanvas'), r = cv.getBoundingClientRect(), d = gLayout.screen.d;
+  const x = (ev.clientX - r.left) / r.width * cv.width, y = (ev.clientY - r.top) / r.height * cv.height;
+  for (const n of gLayout.nodes) { const b = n._box; if (b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return { type: 'node', id: n.id, n }; }
+  let best = null, bd = 12 * d;
+  for (const e of gLayout.edges) {
+    const a = gLayout.screen.P(e.source), b = gLayout.screen.P(e.target);
+    for (let t = 0; t <= 1; t += 0.05) { const mx = (a.x + b.x) / 2, u = 1 - t;
+      const px = u * u * u * a.x + 3 * u * u * t * mx + 3 * u * t * t * mx + t * t * t * b.x, py = u * u * u * a.y + 3 * u * u * t * a.y + 3 * u * t * t * b.y + t * t * t * b.y;
+      const dd = Math.hypot(px - x, py - y); if (dd < bd) { bd = dd; best = { type: 'edge', id: e.id, e }; } }
+  }
+  return best;
+}
+function showGraphDetail(hit) {
+  const el = $('#egDetail'); if (!hit) return;
+  const lab = id => gLayout.nodes.find(n => n.id === id)?.label || id;
+  if (hit.type === 'node') {
+    const n = hit.n, links = gLayout.edges.filter(e => e.source === n.id || e.target === n.id);
+    el.innerHTML = `<h3>${esc(n.label)} <small>${esc(n.category)}</small></h3><p>${esc(n.description)}</p><h4>LINKS</h4><ul>${links.map(e => `<li><b style="color:${LV_COL[e.evidence_level]}">${LV_TXT[e.evidence_level]}</b> — ${esc(lab(e.source))} → ${esc(lab(e.target))}</li>`).join('')}</ul>`;
+  } else {
+    const e = hit.e;
+    el.innerHTML = `<h3>${esc(lab(e.source))} → ${esc(lab(e.target))}</h3><p><b style="color:${LV_COL[e.evidence_level]}">${LV_TXT[e.evidence_level]}</b> · ${esc(e.relation)} · weight ${e.weight} · uncertainty ${e.uncertainty}</p><p class="ref">Source: ${esc(e.evidence_reference)}</p>${e.limitations?.length ? `<h4>LIMITATIONS</h4><ul>${e.limitations.map(l => `<li>${esc(l)}</li>`).join('')}</ul>` : ''}`;
+  }
+}
+
+/* ---------------- GENETICS: real gene-expression table ---------------- */
+async function loadGenes() {
+  const el = $('#realGenes'); loading(el);
+  try {
+    const g = await api('/api/v1/evidence/gene-expression');
+    const lg = v => Math.log10(1 + Math.max(0, v || 0)), mx = Math.max(...g.records.map(r => lg(r.fold_change_9gy_vs_control)));
+    el.innerHTML = `<div class="osd-card"><b>NASA OSDR · OSD-720 / GLDS-699</b> <button class="src" data-src="osd720">dataset</button> <button class="src" data-src="twins">NASA Twins Study</button><p>Mouse left-ventricle transcriptome (RNA-seq, n = 60) after NSRL simulated galactic cosmic rays or gamma radiation — a NASA Human Research Program dataset linking space radiation to lasting cardiac gene-expression changes. Ground-based simulated radiation, not spaceflight.</p></div>
+      <p class="cite">${esc(g.study_citation)} <button class="src" data-src="nag9_1024">NAG9-1024</button></p><p class="meta">${esc(g.organism)} · ${esc(g.tissue)} · ${esc(g.radiation_condition)} · ${esc(g.timepoint)}</p>
+      <table class="gtab"><tr><th>GENE</th><th>CATEGORY</th><th>CONTROL</th><th>9 Gy</th><th>9 Gy + VIT A</th><th>FOLD CHANGE (9 Gy, log bar)</th><th>VIT A REDUCED</th></tr>
+      ${g.records.map(r => `<tr><td><b>${esc(r.gene_symbol)}</b><small>${esc(r.accession)}</small></td><td>${esc(r.category.replace(/_/g, ' '))}</td><td>${r.control.toLocaleString()}</td><td>${r.dose_9gy.toLocaleString()}</td><td>${r.dose_9gy_plus_vitamin_a.toLocaleString()}</td>
+        <td><div class="fc"><i style="width:${lg(r.fold_change_9gy_vs_control) / mx * 100}%"></i><b>${r.fold_change_9gy_vs_control ?? '—'}×</b></div></td><td class="${r.vitamin_a_reduced_the_9gy_effect ? 'ok' : ''}">${r.vitamin_a_reduced_the_9gy_effect ? 'YES' : 'NO'}</td></tr>`).join('')}</table>
+      <p class="note">${esc(g.evidence_reference)} — ${g.limitations.map(esc).join(' ')}</p>`;
+  } catch (e) { errBox(el, e, loadGenes); }
+}
+
+/* ---------------- AI ASSISTANT ---------------- */
+let chat = lsGet(KEYS.chat, []);
+let aiStatus = null;
+function vitalsSummary() {
+  const h = lsGet(KEYS.vitals, []), r = h[h.length - 1];
+  const lines = [];
+  if (r) {
+    lines.push(`Recorded ${new Date(r.recorded_at).toLocaleString()}. Overall status: ${r.evaluation.overall_status}.`);
+    r.evaluation.metrics.forEach(m => lines.push(`- ${m.label}: ${m.metric_id === 'heart_rhythm' ? (m.value ? 'regular' : 'irregular') : m.value + (m.unit ? ' ' + m.unit : '')} (${m.status})`));
+    if (r.entry.body_mass_kg) lines.push(`- Body mass: ${r.entry.body_mass_kg}kg`);
+  }
+  lines.push(`HUD monitor (simulated scenario "${ctx.hudSummary().scenario}"): ${ctx.hudSummary().text}`);
+  return lines.join('\n').slice(0, 1990);
+}
+function renderChat() {
+  const box = $('#chatLog');
+  box.innerHTML = chat.length ? chat.map(t => `<div class="msg ${t.role}"><b>${t.role === 'user' ? 'YOU' : 'BEYOND AI'}</b><p>${esc(t.content).replace(/\n/g, '<br>')}</p></div>`).join('')
+    : `<div class="msg assistant"><b>BEYOND AI</b><p>Ask about the crew's health, the current scan, your own saved vitals or the evidence behind any risk. Answers are grounded only in this platform's data.</p></div>`;
+  box.scrollTop = box.scrollHeight;
+}
+async function openChat(prefill) {
+  $('#chatModal').classList.remove('hidden'); renderChat();
+  if (prefill) { $('#chatIn').value = prefill; }
+  $('#chatIn').focus();
+  if (!aiStatus) {
+    try { aiStatus = await api('/api/v1/assistant/status'); } catch (e) { aiStatus = { configured: false, notice: e.message }; }
+    $('#chatState').innerHTML = aiStatus.configured ? `<span class="ok">● ONLINE</span> ${esc(aiStatus.model || '')}` : `<span class="warn">● OFFLINE</span> ${esc(aiStatus.notice || '')}`;
+  }
+}
+async function sendChat() {
+  const inp = $('#chatIn'), msg = inp.value.trim(); if (!msg) return;
+  inp.value = ''; const history = chat.slice(-12);
+  chat.push({ role: 'user', content: msg }); renderChat();
+  $('#chatLog').insertAdjacentHTML('beforeend', '<div class="msg assistant pending"><b>BEYOND AI</b><p>…</p></div>');
+  try {
+    const r = await api('/api/v1/assistant/ask', { message: msg, history, vitals_summary: vitalsSummary() });
+    chat.push({ role: 'assistant', content: r.answer });
+  } catch (e) { chat.push({ role: 'assistant', content: '⚠ ' + e.message }); }
+  chat = chat.slice(-60); lsSet(KEYS.chat, chat); renderChat();
+}
+
+/* ---------------- wiring ---------------- */
+let ctx;
+const loaded = {};
+export function onTab(name) {
+  if (name === 'myvitals') { renderHistory(); requestAnimationFrame(renderVTrend); }
+  if (name === 'crew' && !loaded.crew) { loaded.crew = 1; loadCrewControls().then(runCrewSim); }
+  else if (name === 'crew') requestAnimationFrame(() => { drawCrewChart(); });
+  if (name === 'eva' && !loaded.eva) { loaded.eva = 1; loadEva(); }
+  if (name === 'research') { if (!loaded.research) { loaded.research = 1; loadResearch(); } else requestAnimationFrame(drawGraph); }
+  if (name === 'genetics' && !loaded.genes) { loaded.genes = 1; loadGenes(); }
+}
+export function logScan(rec) {
+  const s = lsGet(KEYS.scans, []); s.push({ ...rec, at: new Date().toISOString() }); lsSet(KEYS.scans, s.slice(-200));
+}
+export function initResearch(c) {
+  ctx = c;
+  buildVitalsForm(); renderHistory();
+  $('#vTrendSel').innerHTML = Object.entries(TREND_METRICS).map(([k, [l]]) => `<option value="${k}">${l}</option>`).join('');
+  $('#vTrendSel').onchange = renderVTrend;
+  $('#vExport').onclick = exportHistory; $('#vImport').onclick = importHistory;
+  $('#runSim').onclick = runCrewSim;
+  const cv = $('#egCanvas');
+  cv.onmousemove = e => { const h = graphHit(e); const id = h?.id || null; if (id !== gHover?.id) { gHover = h; drawGraph(); } cv.style.cursor = h ? 'pointer' : 'default'; };
+  cv.onclick = e => showGraphDetail(graphHit(e));
+  $('#aiOpen').onclick = () => openChat();
+  $('#aiAsk').onclick = () => openChat(`Explain the current scan result (${ctx.hudSummary().scenario}) and what the crew should do next.`);
+  $('#chatSend').onclick = sendChat;
+  $('#chatIn').onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } };
+  $('#chatClear').onclick = () => { chat = []; lsSet(KEYS.chat, chat); renderChat(); };
+  $('#chatX').onclick = () => $('#chatModal').classList.add('hidden');
+  $('#chatModal').onclick = e => { if (e.target.id === 'chatModal') $('#chatModal').classList.add('hidden'); };
+  addEventListener('storage', e => { if (e.key === KEYS.vitals || e.key === KEYS.scans) renderHistory(); });
+  addEventListener('resize', () => { drawCrewChart(); drawGraph(); renderVTrend(); });
+  checkLink();
+  // if the person already saved vitals (here or in the main app on the same domain), offer them to the HUD
+  const h = lsGet(KEYS.vitals, []);
+  if (h.length) ctx.registerSelfVitals(h[h.length - 1].entry, h[h.length - 1].evaluation);
+}

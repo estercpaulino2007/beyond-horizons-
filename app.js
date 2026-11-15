@@ -1,5 +1,5 @@
-// Beyond Horizons — Space Health Monitoring System (demo front-end)
-// Vanilla JS + three.js. All physiological readings are SIMULATED for demonstration.
+// Beyond Horizons — Space Health Monitoring System (HUD front-end)
+// Vanilla JS + three.js. Mission scenario readings are SIMULATED; research tabs read the Beyond Horizons API.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -8,6 +8,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { initResearch, onTab, logScan } from './research.js';
+import { chips, initSources } from './sources.js';
 
 /* ============================================================
    CONFIG
@@ -40,10 +42,10 @@ const RANGES = {
 };
 const ENV_RANGES = {
   o2:    { ok: [19.5, 23.5], warn: [18.5, 24] },
-  co2:   { ok: [0, 0.40], warn: [0, 0.53] },
+  co2:   { ok: [0, 0.395], warn: [0, 0.53] },   // % ; 0.395% ≈ 3 mmHg (NASA-STD-3001 V2 6004)
   press: { ok: [14.2, 15.2], warn: [13.9, 15.4] },
-  temp:  { ok: [18.3, 26.7], warn: [17, 28] },
-  rad:   { ok: [0, 0.05], warn: [0, 0.5] },
+  temp:  { ok: [18, 27], warn: [17, 28] },       // NASA-STD-3001 V2 6012
+  rad:   { ok: [0, 0.021], warn: [0, 0.084] },  // mSv/h ; ≤0.5 mSv/d (ISS), ≤2 mSv/d (deep-space GCR, MSL RAD 1.8)
 };
 function classify(v, r) {
   if (v >= r.ok[0] && v <= r.ok[1]) return 'ok';
@@ -52,49 +54,55 @@ function classify(v, r) {
 }
 
 const BASE_V = { hr: 72, spo2: 98, temp: 36.6, sys: 118, dia: 76, rr: 16 };
-const BASE_E = { o2: 21.0, co2: 0.30, press: 14.7, temp: 22.4, rad: 0.03 };
+const BASE_E = { o2: 21.0, co2: 0.30, press: 14.7, temp: 22.4, rad: 0.015 };
 const ALL_OK = { skeletal: 'ok', muscular: 'ok', cardiovascular: 'ok', respiratory: 'ok', neurological: 'ok', digestive: 'ok' };
 const SYS_OK = { life: 'ok', thermal: 'ok', rad: 'ok', comm: 'ok' };
 
 const SCENARIOS = [
   { id: 'nominal', name: 'Nominal', level: 'ok',
     desc: 'Baseline crew health during routine Low Earth Orbit operations.',
-    v: {}, e: {}, organs: {}, sys: {}, gen: { expr: 98.1, mut: ['Low', 22] }, neural: 92.4,
+    v: {}, e: {}, organs: {}, sys: {}, gen: { expr: 98.1, mut: ['Low', 22] }, neural: 92.4, src: ['iss_dose', 'std3001_co2'],
     ai: ['All systems nominal.', 'No immediate health risks detected. Continue current mission profile.'],
     recs: ['Keep the daily exercise block (≈2 h) on schedule.', 'Next routine medical check at the upcoming checkpoint.'] },
   { id: 'hypoxia', name: 'Hypoxia — cabin O₂ drop', level: 'crit',
     desc: 'Oxygen generation fault lowers cabin O₂; blood oxygen saturation falls.',
     v: { hr: 108, spo2: 87, temp: 36.8, sys: 128, dia: 82, rr: 26 }, e: { o2: 17.6, co2: 0.45, press: 14.4 },
-    organs: { respiratory: 'crit', neurological: 'warn', cardiovascular: 'warn' }, sys: { life: 'crit' },
+    organs: { respiratory: 'crit', neurological: 'warn', cardiovascular: 'warn' }, sys: { life: 'crit' }, src: ['std3001_atm', 'std3001_co2'],
     gen: { expr: 96.9, mut: ['Low', 24] }, neural: 78.2,
     ai: ['<span class="c">SpO₂ 87% — hypoxemia detected.</span>', 'Cabin O₂ below safe range. Don O₂ mask and check the oxygen generation system.'],
     recs: ['Put on emergency O₂ mask immediately.', 'Verify the Oxygen Generation Assembly and cabin pressure.', 'Watch for confusion or headache (early neurological signs).'] },
   { id: 'arrhythmia', name: 'Cardiac arrhythmia', level: 'crit',
     desc: 'Irregular, fast heartbeat detected on the ECG trace.',
     v: { hr: 142, spo2: 95, temp: 36.9, sys: 146, dia: 94, rr: 21 }, irregular: true,
-    organs: { cardiovascular: 'crit' }, sys: {}, gen: { expr: 97.4, mut: ['Low', 23] }, neural: 88.0,
-    ai: ['<span class="c">Irregular R-R intervals · HR 142 bpm.</span>', 'Pattern consistent with atrial fibrillation. Stop exertion and contact the flight surgeon.'],
+    organs: { cardiovascular: 'crit' }, sys: {}, gen: { expr: 97.4, mut: ['Low', 23] }, neural: 88.0, src: ['hrp_cardiac'],
+    ai: ['<span class="c">Irregular R-R intervals · HR 142 bpm.</span>', 'Pattern consistent with atrial fibrillation (a risk NASA tracks). Stop exertion, contact the flight surgeon.'],
     recs: ['Stop all physical exertion.', 'Record a 12-lead ECG and downlink to the flight surgeon.', 'Prepare the medical kit per the cardiac procedure.'] },
   { id: 'radiation', name: 'Solar particle event', level: 'warn',
     desc: 'A solar storm raises the radiation dose rate inside the habitat.',
-    v: { hr: 84, temp: 37.0, sys: 122, dia: 80, rr: 17 }, e: { rad: 1.20 },
+    v: { hr: 84, temp: 37.0, sys: 122, dia: 80, rr: 17 }, e: { rad: 0.5 }, src: ['iss_dose', 'msl_rad', 'osd720'],
     organs: { skeletal: 'warn', digestive: 'warn' }, sys: { rad: 'warn' },
     gen: { expr: 91.4, mut: ['Elevated', 64] }, neural: 90.1,
-    ai: ['<span class="w">Dose rate 40× above baseline.</span>', 'Move to the shielded storm shelter and log cumulative dose.'],
+    ai: ['<span class="w">Dose rate 12 mSv/day — ~33× the ISS baseline.</span>', 'Move to the shielded storm shelter and log cumulative dose.'],
     recs: ['Relocate crew to the storm shelter (most shielded module).', 'Track cumulative dose against mission limits.', 'Bone marrow and GI tract are the most radiation-sensitive tissues.'] },
   { id: 'heat', name: 'Heat stress', level: 'warn',
     desc: 'Thermal control degraded; core temperature and heart rate rise.',
-    v: { hr: 118, spo2: 97, temp: 38.7, sys: 100, dia: 64, rr: 22 }, e: { temp: 29.5 },
+    v: { hr: 118, spo2: 97, temp: 38.7, sys: 100, dia: 64, rr: 22 }, e: { temp: 29.5 }, src: ['std3001_env'],
     organs: { cardiovascular: 'warn', neurological: 'warn' }, sys: { thermal: 'crit' },
     gen: { expr: 95.8, mut: ['Low', 26] }, neural: 84.6,
     ai: ['<span class="w">Core temp 38.7 °C with rising HR.</span>', 'Thermal loop degraded. Increase cooling, rehydrate and pause EVA prep.'],
     recs: ['Increase cabin cooling / switch to the backup thermal loop.', 'Drink ≈500 mL of fluid with electrolytes.', 'Postpone EVA preparation until core temperature normalises.'] },
   { id: 'bone', name: 'Bone density loss', level: 'warn',
     desc: 'Long-duration microgravity trend: gradual loss of bone mineral density.',
-    v: { hr: 70 }, organs: { skeletal: 'warn', muscular: 'warn' }, sys: {},
+    v: { hr: 70 }, organs: { skeletal: 'warn', muscular: 'warn' }, sys: {}, src: ['hrp_bone', 'lang2004', 'lsda_osteo', 'hrp_muscle'],
     gen: { expr: 97.2, mut: ['Low', 25] }, neural: 92.0,
-    ai: ['<span class="w">Bone density trend −1.2 %/month.</span>', 'Typical of long-duration flight. Increase resistive exercise.'],
+    ai: ['<span class="w">Bone density trend −1.2 %/month.</span>', 'Within NASA’s 1–1.5 %/month for 4–6-month missions. Increase resistive exercise.'],
     recs: ['Increase resistive exercise sessions on the ARED device.', 'Review calcium and vitamin D intake.', 'Schedule a follow-up density estimate.'] },
+  { id: 'sans', name: 'SANS — headward fluid shift', level: 'warn',
+    desc: 'Spaceflight Associated Neuro-ocular Syndrome: microgravity fluid shift changes eye and brain structure.',
+    v: { hr: 68 }, organs: { neurological: 'warn' }, sys: {}, src: ['hrp_sans'],
+    gen: { expr: 97.6, mut: ['Low', 23] }, neural: 89.5,
+    ai: ['<span class="w">Neuro-ocular changes flagged (SANS pattern).</span>', 'Over half of crewmembers show ≥1 SANS symptom. Schedule an onboard OCT eye exam.'],
+    recs: ['Run an onboard OCT / fundoscopy exam and compare with the pre-flight baseline.', 'Log any near-vision blur or headache.', 'Countermeasures under study include lower-body negative pressure and B-vitamin status (research stage).'] },
 ];
 function scen() { return SCENARIOS[state.scen]; }
 
@@ -201,10 +209,13 @@ function initHolo() {
   const cam = new THREE.PerspectiveCamera(24, 1, 0.1, 400);
   cam.position.set(0, 1.62, 8.6);
   const ctl = new OrbitControls(cam, holoCanvas);
-  ctl.target.set(0, 1.52, 0); ctl.enableZoom = false; ctl.enablePan = false;
-  ctl.minPolarAngle = Math.PI * 0.38; ctl.maxPolarAngle = Math.PI * 0.56; ctl.enableDamping = true;
+  ctl.target.set(0, 1.52, 0); ctl.enableZoom = true; ctl.enablePan = true; ctl.screenSpacePanning = true;
+  ctl.minDistance = 4.2; ctl.maxDistance = 14; ctl.zoomSpeed = 0.7; ctl.panSpeed = 0.6;
+  ctl.minPolarAngle = Math.PI * 0.2; ctl.maxPolarAngle = Math.PI * 0.62; ctl.enableDamping = true;
   ctl.rotateSpeed = 0.6;
   ctl.update();
+  ctl.saveState();
+  holoCanvas.addEventListener('dblclick', () => ctl.reset());
 
   scene.add(new THREE.HemisphereLight(0x9fd0ff, 0x0a1830, 1.3));
   const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(2.5, 5, 6); scene.add(key);
@@ -282,6 +293,7 @@ function mergeGeoms(list) {
 function sizeHolo() {
   if (!holo.r) return;
   const z = document.getElementById('holoZone').getBoundingClientRect();
+  if (z.width < 2 || z.height < 2) return; // overview hidden: keep the last good size
   const padX = 170 * S, padB = 20 * S;
   const x = z.left - padX, y = z.top, w = z.width + padX * 2, h = z.height + padB;
   Object.assign(holoCanvas.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
@@ -439,7 +451,7 @@ function updateModeVisuals(dt) {
     state.scanProg = Math.min(1, t);
     scanY.value = THREE.MathUtils.lerp(-0.05, H + 0.15, state.scanProg);
     revealY.value = scanY.value;
-    if (t >= 1) { state.scanFast = false; }
+    if (t >= 1) { state.scanFast = false; const v = state.v; logScan({ scenario: scen().name, level: overall(), v: { hr: Math.round(v.hr), spo2: Math.round(v.spo2), temp: +v.temp.toFixed(1), rr: Math.round(v.rr) } }); }
   } else if (state.mode === 'scan') {
     revealY.value = 100;
     scanY.value = (Math.sin(holoTime.value * 0.9) * 0.5 + 0.5) * (H + 0.1);
@@ -749,6 +761,7 @@ function drawTrend(w, arr, color, r) {
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 function vitalStatus() {
   const v = state.v;
+  const es = scen().evalStatus; if (es) return { ...es };
   return { hr: classify(v.hr, RANGES.hr), spo2: classify(v.spo2, RANGES.spo2), temp: classify(v.temp, RANGES.temp), bp: classify(v.sys, RANGES.sys), rr: classify(v.rr, RANGES.rr) };
 }
 function targetV() { return { ...BASE_V, ...scen().v }; }
@@ -777,7 +790,7 @@ function updateVitalsUI() {
 }
 function updateEnvUI() {
   const e = state.e, tgt = targetE();
-  const tiles = { o2: [e.o2.toFixed(1) + '%', 1], co2: [e.co2.toFixed(2) + '%', 2], press: [e.press.toFixed(1) + ' <small>psi</small>', 1], temp: [e.temp.toFixed(1) + ' <small>°C</small>', 1], rad: [e.rad.toFixed(2) + ' <small>mSv/h</small>', 2] };
+  const tiles = { o2: [e.o2.toFixed(1) + '%', 1], co2: [(e.co2 * 7.6).toFixed(1) + ' <small>mmHg</small>', 2], press: [e.press.toFixed(1) + ' <small>psi</small>', 1], temp: [e.temp.toFixed(1) + ' <small>°C</small>', 1], rad: [(e.rad * 24).toFixed(2) + ' <small>mSv/d</small>', 2] };
   for (const [k, [txt, dec]] of Object.entries(tiles)) {
     const el = $(`.etile[data-e="${k}"]`); el.querySelector('b').innerHTML = txt;
     const s = classify(e[k], ENV_RANGES[k]); el.classList.remove('warn', 'crit'); if (s !== 'ok') el.classList.add(s);
@@ -794,6 +807,8 @@ function updateStatusUI() {
     el.querySelector('b').textContent = s === 'ok' ? 'Nominal' : s === 'warn' ? 'Degraded' : 'Fault'; });
   const sc = scen();
   $('#aiText').innerHTML = sc.ai.map(p => `<p>${p}</p>`).join('');
+  const key = sc.id + '|' + (sc.src || []).join(',');
+  if (updateStatusUI._k !== key) { updateStatusUI._k = key; $('#aiSrc').innerHTML = chips(sc.src); $('#scenSrc').innerHTML = chips(sc.src); }
   const g = sc.gen; $('#gExpr').textContent = g.expr.toFixed(1) + '%';
   const eb = $('#gExprBar'); eb.style.width = g.expr + '%'; eb.className = g.expr < 93 ? 'warn' : '';
   $('#gMut').textContent = g.mut[0]; const mb = $('#gMutBar'); mb.style.width = g.mut[1] + '%'; mb.className = g.mut[1] > 50 ? 'warn' : '';
@@ -818,6 +833,13 @@ function updateScanList() {
   const lvl = overall(); $('#scanArc').style.color = `var(--${lvl === 'ok' ? 'ok' : lvl})`;
   $('#pScan h3').innerHTML = (state.mode === 'scan' && !state.scanFast) ? 'BODY SCAN<br>COMPLETE' : 'BODY SCAN<br>IN PROGRESS';
 }
+function goTab(name) {
+  $$('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
+  $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+  const ov = name === 'overview'; holoCanvas.style.display = ov ? 'block' : 'none';
+  if (ov) last = performance.now();
+  requestAnimationFrame(() => { layout(); onTab(name); });
+}
 function setScenario(i) {
   state.scen = i; $('#scenarioSel').value = i;
   $$('.card').forEach((c, j) => c.classList.toggle('on', j === i));
@@ -836,33 +858,68 @@ function renderGeneList() {
   ];
   $('#geneList').innerHTML = genes.map(([n, d, s]) => `<div class="gene"><b>${n}</b><span>${d}</span><b style="color:var(--${s === 'ok' ? 'ok' : s})">${s === 'ok' ? 'STABLE' : 'WATCH'}</b></div>`).join('');
 }
-function buildStatic() {
+function buildScenarioUI() {
   const sel = $('#scenarioSel');
   sel.innerHTML = SCENARIOS.map((s, i) => `<option value="${i}">${i + 1}. ${s.name}</option>`).join('');
+  sel.value = state.scen;
   sel.onchange = () => setScenario(+sel.value);
-  $('#simCards').innerHTML = SCENARIOS.map((s, i) => `<div class="card" data-i="${i}"><span class="lvl ${s.level}">${s.level === 'ok' ? 'NOMINAL' : s.level === 'warn' ? 'WARNING' : 'CRITICAL'}</span><h3>${i + 1}. ${s.name}</h3><p>${s.desc}</p><span class="k">key [${i + 1}]</span></div>`).join('');
+  $('#simCards').innerHTML = SCENARIOS.map((s, i) => `<div class="card${i === state.scen ? ' on' : ''}" data-i="${i}"><span class="lvl ${s.level}">${s.level === 'ok' ? 'NOMINAL' : s.level === 'warn' ? 'WARNING' : 'CRITICAL'}</span><h3>${i + 1}. ${s.name}</h3><p>${s.desc}</p><div class="srcs">${chips(s.src)}</div><span class="k">key [${i + 1}]</span></div>`).join('');
   $$('.card').forEach(c => c.onclick = () => setScenario(+c.dataset.i));
+}
+// ---- link between MY VITALS (Beyond Horizons API evaluation) and the hologram ----
+const CAT_TO_SYS = { cardiac: 'cardiovascular', temperature: 'cardiovascular', respiratory: 'respiratory', sleep_fatigue: 'neurological', activity_muscle: 'muscular', hydration_other: 'digestive' };
+const EV_MAP = { normal: 'ok', attention: 'warn', alert: 'crit' };
+function registerSelfVitals(entry, ev) {
+  const rank = { ok: 0, warn: 1, crit: 2 }, organs = {};
+  for (const m of ev.metrics) { const sys = CAT_TO_SYS[m.category], st = EV_MAP[m.status]; if (sys && st !== 'ok' && (!organs[sys] || rank[st] > rank[organs[sys]])) organs[sys] = st; }
+  const ms = id => EV_MAP[ev.metrics.find(m => m.metric_id === id)?.status || 'normal'];
+  const s = {
+    id: 'self', name: 'My vitals (latest reading)', level: EV_MAP[ev.overall_status], self: true,
+    desc: 'Your own reading from MY VITALS, evaluated against general adult resting ranges.',
+    v: { hr: entry.heart_rate_bpm, spo2: entry.spo2_percent, temp: entry.body_temp_c, rr: entry.respiratory_rate_bpm },
+    irregular: entry.heart_rhythm === 'irregular', organs, sys: {}, gen: { expr: 98.1, mut: ['Low', 22] }, neural: 92.4, src: ['clinical'],
+    evalStatus: { hr: ms('heart_rate'), spo2: ms('spo2'), temp: ms('body_temp'), rr: ms('respiratory_rate'), bp: 'ok' },
+    ai: ev.insights.slice(0, 2).map(t => t.split(' -- ')[0]).map((t, i) => i === 0 && ev.overall_status !== 'normal' ? `<span class="${ev.overall_status === 'alert' ? 'c' : 'w'}">${t}</span>` : t),
+    recs: ev.metrics.flatMap(m => (m.recommendations || []).map(r => `${m.label}: ${r}`)).slice(0, 6),
+  };
+  if (!s.recs.length) s.recs = ['Keep logging readings to build a personal trend.'];
+  const i = SCENARIOS.findIndex(x => x.id === 'self');
+  if (i >= 0) SCENARIOS[i] = s; else SCENARIOS.push(s);
+  buildScenarioUI();
+  return SCENARIOS.findIndex(x => x.id === 'self');
+}
+function applySelfVitals(entry, ev) {
+  const i = registerSelfVitals(entry, ev);
+  setScenario(i); if (state.mode !== 'scan') setMode('scan');
+}
+function hudSummary() {
+  const v = state.v;
+  return { scenario: scen().name, text: `HR ${Math.round(v.hr)} bpm, SpO2 ${Math.round(v.spo2)}%, temp ${v.temp.toFixed(1)} C, BP ${Math.round(v.sys)}/${Math.round(v.dia)}, RR ${Math.round(v.rr)}; overall ${overall()}; flagged systems: ${Object.entries({ ...ALL_OK, ...scen().organs }).filter(([, x]) => x !== 'ok').map(([k, x]) => k + ' ' + x).join(', ') || 'none'}.` };
+}
+function buildStatic() {
+  initSources();
+  const put = (id, ids) => { const el = document.getElementById(id); if (el) el.innerHTML = chips(ids); };
+  put('envSrc', ['std3001_co2', 'std3001_env', 'std3001_atm', 'iss_dose']); put('genSrc', ['twins']); put('sysSrc', ['std3001_co2', 'std3001_atm']);
+  put('misSrc', ['iss_dose']); put('transitSrc', ['msl_rad', 'iss_dose']); put('rangeSrc', ['clinical']); put('markSrc', ['twins']);
+  put('crewSrc', ['msl_rad', 'hrp_bone', 'hrp_muscle']);
+  buildScenarioUI();
   $('#rangeTable').innerHTML = '<tr><th>READING</th><th>NORMAL</th><th>WATCH</th><th>ALERT</th></tr>' + Object.values(RANGES).map(r =>
     `<tr><td>${r.label}</td><td>${r.ok[0]}–${r.ok[1]} ${r.unit}</td><td>${r.warn[0]}–${r.warn[1]}</td><td>outside watch band</td></tr>`).join('');
   $$('#modeSwitch button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
-  $$('.tab').forEach(t => t.onclick = () => {
-    $$('.tab').forEach(x => x.classList.toggle('active', x === t));
-    $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + t.dataset.tab));
-    const ov = t.dataset.tab === 'overview'; holoCanvas.style.display = ov ? 'block' : 'none';
-    requestAnimationFrame(sizeWaves);
-  });
+  $$('.tab').forEach(t => t.onclick = () => goTab(t.dataset.tab));
+  $('#viewReset').onclick = () => holo.ctl?.reset();
   $('#fsBtn').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
   $('#aiBtn').onclick = () => {
     const sc = scen(), st = vitalStatus();
     const flags = Object.entries(st).filter(([, s]) => s !== 'ok').map(([k, s]) => `<li><b style="color:var(--${s})">${s.toUpperCase()}</b> — ${(RANGES[k] || RANGES.sys).label}</li>`).join('') || '<li>All readings inside normal ranges.</li>';
     $('#mdTitle').textContent = 'AI INSIGHTS — ' + sc.name.toUpperCase();
-    $('#mdBody').innerHTML = `<h4>SUMMARY</h4>${sc.ai.map(p => `<p>${p}</p>`).join('')}<h4>FLAGGED READINGS</h4><ul>${flags}</ul><h4>RECOMMENDED ACTIONS</h4><ul>${sc.recs.map(r => `<li>${r}</li>`).join('')}</ul>`;
+    $('#mdBody').innerHTML = `<h4>SUMMARY</h4>${sc.ai.map(p => `<p>${p}</p>`).join('')}<h4>FLAGGED READINGS</h4><ul>${flags}</ul><h4>RECOMMENDED ACTIONS</h4><ul>${sc.recs.map(r => `<li>${r}</li>`).join('')}</ul><h4>EVIDENCE</h4><div>${chips(sc.src) || 'General clinical reference ranges.'}</div>`;
     $('#modal').classList.remove('hidden');
   };
   $('#modalX').onclick = () => $('#modal').classList.add('hidden');
   $('#modal').onclick = e => { if (e.target.id === 'modal') $('#modal').classList.add('hidden'); };
   addEventListener('keydown', e => {
-    if (e.target.tagName === 'SELECT') return;
+    if (['SELECT', 'INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
     if (e.key === 'm' || e.key === 'M') setMode(state.mode === 'scan' ? 'astronaut' : 'scan');
     const n = +e.key; if (n >= 1 && n <= SCENARIOS.length) setScenario(n - 1);
     if (e.key === 'Escape') $('#modal').classList.add('hidden');
@@ -952,6 +1009,7 @@ function loop(now) {
     updateModeVisuals(dt);
     holo.spinA.rotation.z = t * 0.25; holo.spinB.rotation.z = -t * 0.4;
     holo.parts.rotation.y = t * 0.05;
+    const tg = holo.ctl.target; tg.x = THREE.MathUtils.clamp(tg.x, -1.2, 1.2); tg.y = THREE.MathUtils.clamp(tg.y, 0.2, 3.0); tg.z = THREE.MathUtils.clamp(tg.z, -1, 1);
     holo.ctl.update();
     if (holo.composer) holo.composer.render(); else holo.r.render(holo.scene, holo.cam);
     updateMarkers();
@@ -976,11 +1034,12 @@ async function boot() {
   // measure anatomy top (world) for the scan sweep
   if (holo.anat) { holo.anat.visible = true; holo.astro.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(holo.anat); holo.anatTop = b.max.y; holo.anat.visible = false; }
   setupMiniViews();
+  initResearch({ registerSelfVitals, applySelfVitals, hudSummary, goTab });
   applyOrganStatus(); updateStatusUI(); updateVitalsUI(); updateEnvUI(); updateScanList(); clockTick();
   layout();
   if (qs.get('mode') === 'scan') setMode('scan');
   if (qs.has('s')) setScenario(+qs.get('s'));
-  if (qs.has('tab')) document.querySelector(`.tab[data-tab="${qs.get('tab')}"]`)?.click();
+  if (qs.has('tab')) goTab(qs.get('tab'));
   document.getElementById('loader').classList.add('done');
   requestAnimationFrame(loop);
   window.__bh = { holo, state, models, CONFIG, setMode, setScenario };
