@@ -1,27 +1,138 @@
 # Beyond Horizons — 3D Health HUD
 
-Holographic astronaut health-monitoring console for the NASA Space Apps Challenge 2026 challenge
-*"Create Health Monitoring Software for Astronauts on Space Missions"*.
+*Beyond data. Toward safer human exploration.*
 
-**Live:** https://estercpaulino2007.github.io/beyond-horizons-/  
-**Full platform (Next.js + FastAPI):** https://beyond-horizons-ruddy.vercel.app/ (the HUD is also there under **3D Health HUD**)
+A holographic mission-control console for astronaut health monitoring, built for the **NASA Space Apps Challenge 2026** challenge *"Create Health Monitoring Software for Astronauts on Space Missions"*. It is the 3D front end of the **Beyond Horizons** platform: an explainable crew digital twin that monitors vital signs, the habitat environment and long-term spaceflight risks, and explains every result with its evidence.
+
+- **Live HUD:** https://estercpaulino2007.github.io/beyond-horizons-/
+- **Full platform (Next.js + FastAPI):** https://beyond-horizons-ruddy.vercel.app/ — the HUD is also available there under **3D Health HUD**
+
+> **Disclaimer.** Beyond Horizons is an astronaut health-monitoring and mission-simulation platform (research prototype). Mission readings and crew profiles are synthetic or simulated and are labelled **SIMULATED** / **SYNTHETIC** everywhere in the interface. NASA standards, measurements and datasets set the limits, rates and evidence behind them. It does not provide medical advice and does not replace a flight surgeon.
+
+---
 
 ## What it does
-- **Astronaut mode / Scan mode**: the suit turns into a translucent hologram and the body scan reveals skeleton, vessels, lungs, heart, abdominal organs and brain. Systems on *watch* or *alert* glow amber/red and are labelled on the model.
-- **Health scenarios** (keys `1`–`8`): nominal, hypoxia, cardiac arrhythmia, solar particle event, heat stress, bone-density loss, SANS, and **My vitals** (your own latest reading).
-- **Tabs**: Overview · Biometrics · My Vitals · Genetics · Scenarios · Crew Risk · EVA Decision · Research · Mission.
-- **Linked to the Beyond Horizons API**: vitals evaluation, Ares-180 crew-risk simulation, EVA counterfactuals, Debate Chamber, evidence graph, Research Navigator, published gene-expression data and the Beyond AI assistant.
-- **History**: vitals readings, body-scan log and AI conversation are saved in the browser (same format as the main platform), with JSON export/import.
-- **NASA SOURCES**: every threshold, rate and dataset has a clickable source tag — NASA-STD-3001 (CO₂, atmosphere, ECLSS limits), ISS radiation dose rate, MSL RAD cruise dose, NASA HRP evidence reports (bone, muscle, SANS, cardiac rhythm), the NASA Twins Study, OSDR OSD-720 (GeneLab), grant NAG9-1024 and LSDA osteoblast data.
 
-Mission readings on the HUD are simulated and labelled **SIMULATED**; the NASA references set the limits, rates and evidence behind them. Research prototype · not medical advice.
+### 1. Real-time health monitoring (Overview)
+- **Vital signs** with live waveforms: heart rate (ECG trace), SpO₂ (pleth), core temperature, blood pressure and respiratory rate. Each reading turns amber (*watch*) or red (*alert*) when it leaves its reference range, with the trend arrow of the last seconds.
+- **Habitat environment**: O₂, CO₂ (in mmHg, against the NASA-STD-3001 limit of 3 mmHg), cabin pressure, cabin temperature (18–27 °C limit) and radiation dose rate (mSv/day, against the ISS baseline).
+- **Systems status**: life support, thermal control, radiation shielding and communication.
+- **Body scan, neural activity, genetic overview, mission clock and AI insights**, all updating together.
 
-## Controls
-Drag = rotate · scroll = zoom · right-drag = move · double-click = reset · `M` = toggle mode · `1`–`8` = scenario.
-URL parameters: `?mode=scan&s=1&tab=biometrics`.
+### 2. Astronaut mode and Scan mode
+- **Astronaut mode** shows the crew member in a normal suit.
+- **Scan mode** turns the suit into a translucent hologram; a scan line sweeps from feet to head and reveals the skeleton, arteries and veins, lungs, heart (beating at the current heart rate), abdominal organs and brain.
+- Body systems on *watch* or *alert* glow amber or red, pulse, and are labelled on the model (LUNGS, HEART, BRAIN…), while healthy organs dim so the problem stands out.
+- Drag to rotate, scroll to zoom, right-drag to move, double-click (or **RESET VIEW**) to reset.
+
+### 3. Health scenarios — built-in and your own
+Built-in scenarios (keys `1`–`7`), each tied to NASA references:
+
+| # | Scenario | What changes |
+|---|----------|--------------|
+| 1 | Nominal | Baseline LEO operations |
+| 2 | Hypoxia — cabin O₂ drop | SpO₂ falls, lungs alert, life support fault |
+| 3 | Cardiac arrhythmia | Irregular, fast ECG; heart alert |
+| 4 | Solar particle event | Dose rate ~33× ISS baseline; bone marrow / GI watch; genetics watch |
+| 5 | Heat stress | Core temperature and heart rate rise; thermal control fault |
+| 6 | Bone density loss | −1.2 %/month trend (NASA: 1–1.5 %/month) |
+| 7 | SANS — headward fluid shift | Neuro-ocular changes flagged |
+
+**Create your own scenarios** (SCENARIOS tab → **+ CREATE SCENARIO**): set name, description, every vital sign, irregular rhythm, habitat O₂ / CO₂ / temperature / radiation, and each body and habitat system (or leave it on *Auto* to derive it from the readings). Optional custom AI insight and recommended actions. Your scenarios are saved, can be edited or deleted, and run a full body scan on the hologram.
+
+### 4. My Vitals — your own readings and history
+- Enter heart rate, rhythm, SpO₂, temperature, respiratory rate, sleep, sleep quality, stress, activity, hydration and body mass.
+- The Beyond Horizons API evaluates every metric against general adult resting ranges and returns status, insights and suggested actions (if the API is unreachable, the same rules run in the browser).
+- **Show on the hologram**: your reading becomes the *My vitals* scenario and the 3D body scan shows your own flagged systems.
+- **History**: every saved reading is listed with date and status, can be re-displayed on the hologram or deleted, and is charted as a personal trend (heart rate, SpO₂, temperature, respiratory rate, sleep).
+- **Body scan log**: every completed scan is recorded automatically with scenario, status and vitals.
+- **Export / Import** the whole history as JSON to move it between devices or between this site and the full platform.
+
+### 5. Crew Risk — Ares-180 simulation
+Runs the platform's simulation engine for the four synthetic crew members of the 180-day Ares-180 Mars-transit mission. Choose destination, duration, communication delay and countermeasures (enhanced exercise, radiation shielding, sleep & cognitive-load protocol); see daily operational risk per crew member, vulnerability windows, days per risk band and each person's top risk drivers.
+
+### 6. EVA Decision and Debate Chamber
+Compares the three alternatives for the critical day-145 EVA (maintain, delay 10 days, reassign + recovery) on completion probability and peak operational, cognitive and musculoskeletal risk, and shows the Debate Chamber: mission commander, flight surgeon, science officer and a skeptic, each applying one fixed, auditable formula.
+
+### 7. Research — evidence graph and Research Navigator
+An interactive causal graph (radiation, microgravity, sleep debt, cognitive load, bone, muscle, operational error…) where every link is coloured by evidence level — supported evidence, data-supported association, exploratory hypothesis, synthetic parameter. Click a node or link to see its source and limitations. The Research Navigator ranks the next experiments by `mission_impact × uncertainty × information_gain / cost`.
+
+### 8. Genetics
+Published radiation gene-expression data (Burns et al. 2002, NASA grant NAG9-1024), the NASA OSDR dataset OSD-720 (space-radiation effects on the heart transcriptome) and the genomic markers studied in the NASA Twins Study, with a 3D DNA view.
+
+### 9. Mission and habitat
+Earth → Mars transit view with measured deep-space dose rates, mission timeline, and an explorable **ISS interior** (photogrammetry): drag to look around, scroll to move through the module, double-click for the automatic tour.
+
+### 10. Beyond AI
+An embedded assistant (**ASK BEYOND AI**, or **Ask AI** in the AI Insights panel) that answers questions about the crew, the current scan, your saved vitals and the evidence behind each risk, grounded only in the platform's own data. The conversation is saved in the browser.
+
+### 11. Customization
+- Click **MISSION** or **ASTRONAUT** in the header to set the astronaut's name, mission ID, mission phase, crew size and mission elapsed time.
+- Custom scenarios, vitals history, scan log and chat are all saved locally in the browser.
+
+---
+
+## NASA data and references
+
+Every limit, rate and dataset has a clickable green source tag, and the **NASA SOURCES** button lists them all with links and where each one is used:
+
+| Area | Reference |
+|------|-----------|
+| CO₂ limit (≤ 3 mmHg) | NASA-STD-3001 Vol. 2 Rev D [V2 6004], OCHMO-TB-004 |
+| Cabin temperature / humidity | NASA-STD-3001 Vol. 2 Rev D [V2 6012], OCHMO-TB-002 (ECLSS) |
+| O₂ and total pressure | NASA-STD-3001 Vol. 2 Rev D [V2 6003, V2 6006], OCHMO-TB-003 |
+| ISS radiation dose (0.2–0.5 mSv/day) | NASA NTRS 20250006168 |
+| Deep-space dose (1.8 mSv/day in cruise) | Zeitlin et al. 2013, Science — Curiosity MSL RAD |
+| Bone loss (1–1.5 %/month) | NASA HRP Bone risk / Evidence Report; Lang et al. 2004 (ISS QCT) |
+| Muscle loss | NASA HRP Muscle risk |
+| SANS | NASA HRP Evidence Report: Spaceflight Associated Neuro-ocular Syndrome |
+| Cardiac rhythm | NASA HRP Evidence Report (with the National Academies 2018 caveat) |
+| Genomics | NASA Twins Study (Garrett-Bakelman et al. 2019, Science); NASA OSDR OSD-720 / GLDS-699; NAG9-1024; NASA LSDA osteoblast data; GeneLab (Ray et al. 2019) |
+| Vital-sign ranges | AHA / CDC general adult references (labelled as non-NASA) |
+
+Full provenance notes: `docs/data-sources.md` in the main repository.
+
+---
+
+## How to use
+
+| Action | How |
+|--------|-----|
+| Toggle Astronaut / Scan mode | Buttons above the hologram, or `M` |
+| Change scenario | Dropdown above the hologram, SCENARIOS tab, or keys `1`–`9` |
+| Rotate / zoom / move the model | Drag / scroll / right-drag; double-click to reset |
+| Explore 3D views (ISS, lungs, DNA, transit) | Drag and scroll on the view |
+| Open a source | Click any green tag, or **NASA SOURCES** |
+| Customize names | Click MISSION or ASTRONAUT in the header |
+| Direct links | `?mode=scan&s=2&tab=biometrics` |
+
+The **DATA LINK** indicator shows the connection to the Beyond Horizons API: **ONLINE** (live), or **SNAPSHOT** — the tabs then use `data/snapshot.json`, a stored copy of the API's real outputs for the deterministic Ares-180 seed, so everything still works if the backend is asleep. Live-only features (custom crew-simulation parameters, Beyond AI) say so when the link is offline.
+
+---
 
 ## Configuration
-`config.js` → `apiBase`: address of the Beyond Horizons API (e.g. the Render URL). The backend's `CORS_ORIGINS` must include `https://estercpaulino2007.github.io`.
+- `config.js` → `apiBase`: address of the Beyond Horizons API. This copy uses the Vercel app's `/bh-api` proxy.
+- The backend's `CORS_ORIGINS` must include `https://estercpaulino2007.github.io` for the live link to work from GitHub Pages.
+
+## Run locally
+```bash
+python -m http.server 8080      # then open http://localhost:8080
+```
+Opening `index.html` directly from disk will not load the 3D models (browsers block `file://` requests).
 
 ## Tech
-Static site, no build step: `index.html`, `style.css`, `app.js`, `research.js`, `sources.js`, three.js (vendored) and glTF models compressed with gltf-transform (meshopt + WebP). Run locally with `python -m http.server` (opening the file directly will not load the 3D models).
+- Static site, no build step: `index.html`, `style.css`, `app.js` (HUD, 3D scene, scenarios, customization), `research.js` (API-linked tabs, history, AI), `sources.js` (NASA references), `config.js`.
+- three.js (vendored) with bloom post-processing; a custom fresnel/scan-line hologram shader that works on the skinned astronaut model.
+- 3D models compressed with gltf-transform (meshopt geometry + WebP textures; spec-gloss converted to metal-rough): ~510 MB of source models → ~25 MB.
+- Anatomy (organs and vessels) aligned inside the suit and attached to the skeleton so it follows the astronaut's motion.
+
+## Limitations
+- Mission readings and crew profiles are simulated/synthetic; vital-sign ranges are general adult resting references, not spaceflight-specific thresholds.
+- History is stored per browser (localStorage); there is no server-side account or database yet.
+- Several datasets come from ground-based or animal studies (labelled as such in the SOURCES panel).
+
+## Credits
+Built by the Beyond Horizons team for the NASA Space Apps Challenge 2026. 3D models (astronaut, anatomy, brain, DNA, Earth, Mars, ISS interior photogrammetry, starfield) are used under their respective licences — add each model's author and licence here before submitting.
+
+## License
+MIT.

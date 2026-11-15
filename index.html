@@ -46,9 +46,9 @@
 
     <div class="mission-bar">
       <div class="mb-info">
-        <span>MISSION: <b id="hdMission">STS-1187</b></span>
+        <span class="editable" id="hdEdit1" title="Customize mission">MISSION: <b id="hdMission">STS-1187</b></span>
         <span class="sep"></span>
-        <span>ASTRONAUT: <b id="hdAstro">J. KELLER</b></span>
+        <span class="editable" id="hdEdit2" title="Customize astronaut">ASTRONAUT: <b id="hdAstro">J. KELLER</b> <i class="pen">✎</i></span>
         <span class="sep"></span>
         <span class="status-pill" id="hdStatus"><i></i>STATUS: <b>STABLE</b></span>
         <span class="sep"></span>
@@ -212,7 +212,7 @@
 
   <!-- ================= BIOMETRICS ================= -->
   <section class="view" id="view-biometrics">
-    <div class="panel big3d"><h2>RESPIRATORY SYSTEM — 3D</h2><div class="mini3d" data-view="lungs"></div>
+    <div class="panel big3d"><h2>RESPIRATORY SYSTEM — 3D</h2><div class="view-tip">DRAG TO ROTATE · SCROLL TO ZOOM</div><div class="mini3d" data-view="lungs"></div>
       <div class="legend" id="lungLegend">Lung tissue status: <b>NOMINAL</b></div></div>
     <div class="panel charts">
       <h2>VITAL TRENDS · LAST 60 s <span class="sim-tag">SIMULATED</span></h2>
@@ -231,7 +231,7 @@
 
   <!-- ================= GENETICS ================= -->
   <section class="view" id="view-genetics">
-    <div class="panel big3d gen3d"><h2>GENOMIC INTEGRITY MONITOR</h2><div class="mini3d" data-view="dnabig"></div></div>
+    <div class="panel big3d gen3d"><h2>GENOMIC INTEGRITY MONITOR</h2><div class="view-tip">DRAG TO ROTATE · SCROLL TO ZOOM</div><div class="mini3d" data-view="dnabig"></div></div>
     <div class="panel realgenes"><h2>RADIATION GENE-EXPRESSION DATA <span class="real-tag">PUBLISHED DATA</span></h2><div class="scroll" id="realGenes"></div></div>
     <div class="panel genlist">
       <h2>MARKERS UNDER WATCH <span class="sim-tag">SIMULATED</span> <span class="h-src inline" id="markSrc"></span></h2>
@@ -244,9 +244,10 @@
   <section class="view" id="view-simulations">
     <div class="panel simcards">
       <h2>HEALTH SCENARIOS <span class="sim-tag">SIMULATED</span></h2>
+      <button class="hud-btn primary new-scen" id="newScen">+ CREATE SCENARIO</button>
       <div class="cards" id="simCards"></div>
     </div>
-    <div class="panel big3d"><h2>HABITAT VIEW — ISS INTERIOR (PHOTOGRAMMETRY)</h2><div class="mini3d" data-view="issbig"></div></div>
+    <div class="panel big3d"><h2>HABITAT VIEW — ISS INTERIOR (PHOTOGRAMMETRY)</h2><div class="view-tip">DRAG TO LOOK · SCROLL TO MOVE · DOUBLE-CLICK = AUTO TOUR</div><div class="mini3d" data-view="issbig"></div></div>
   </section>
 
 
@@ -302,8 +303,8 @@
   </section>
   <!-- ================= MISSION ================= -->
   <section class="view" id="view-mission">
-    <div class="panel big3d wide"><h2>TRANSIT: EARTH → MARS</h2><div class="mini3d" data-view="transit"></div>
-      <div class="transit-hud"><div><label>Mission day</label><b id="tDay">5</b></div><div><label>Phase</label><b>Low Earth Orbit ops</b></div><div><label>Crew</label><b>4</b></div>
+    <div class="panel big3d wide"><h2>TRANSIT: EARTH → MARS</h2><div class="view-tip">DRAG TO ROTATE · SCROLL TO ZOOM</div><div class="mini3d" data-view="transit"></div>
+      <div class="transit-hud"><div><label>Mission day</label><b id="tDay">5</b></div><div><label>Phase</label><b id="tPhase">Low Earth Orbit ops</b></div><div><label>Crew</label><b id="tCrew">4</b></div>
         <div><label>Mars cruise GCR dose (measured)</label><b>1.8 mSv/day</b></div><div><label>Transit dose, round trip</label><b>≈ 0.66 Sv</b></div><div><label>ISS dose rate</label><b>0.2–0.5 mSv/day</b></div></div>
       <div class="transit-src" id="transitSrc"></div>
     </div>
@@ -329,6 +330,64 @@
     <h2 id="mdTitle">AI INSIGHTS — DETAILS</h2>
     <div id="mdBody"></div>
     <p class="note">Rule-based monitoring engine · simulated mission readings · not for clinical use.</p>
+  </div>
+</div>
+
+<!-- Customize mission -->
+<div id="cfgModal" class="modal hidden">
+  <div class="modal-box panel cfg-box">
+    <button class="modal-x" data-close="cfgModal">✕</button>
+    <h2>CUSTOMIZE MISSION</h2>
+    <form id="cfgForm" class="fgrid one" onsubmit="return false">
+      <label class="fld"><span>Astronaut name</span><input name="astronaut" maxlength="28"></label>
+      <label class="fld"><span>Mission ID</span><input name="mission" maxlength="20"></label>
+      <label class="fld"><span>Mission phase</span><input name="phase" maxlength="40"></label>
+      <label class="fld"><span>Crew size</span><input name="crew" type="number" min="1" max="12"></label>
+      <label class="fld"><span>Mission elapsed at start (hours)</span><input name="elapsedH" type="number" min="0" max="100000" step="0.1"></label>
+    </form>
+    <div class="vbtns"><button class="hud-btn" id="cfgReset">RESET DEFAULTS</button><button class="hud-btn primary" id="cfgSave">SAVE</button></div>
+    <p class="note">Saved in this browser.</p>
+  </div>
+</div>
+
+<!-- Scenario editor -->
+<div id="scenModal" class="modal hidden">
+  <div class="modal-box panel scen-box">
+    <button class="modal-x" data-close="scenModal">✕</button>
+    <h2 id="scenTitle">CREATE SCENARIO</h2>
+    <div class="scroll scen-body">
+      <form id="scenForm" onsubmit="return false">
+        <div class="fgrid one"><label class="fld"><span>Scenario name</span><input name="name" maxlength="40" required placeholder="e.g. EVA fatigue, day 145"></label>
+        <label class="fld"><span>Description</span><input name="desc" maxlength="160" placeholder="What happens in this situation?"></label></div>
+        <h4 class="sub">VITAL SIGNS</h4>
+        <div class="fgrid three">
+          <label class="fld"><span>Heart rate <em>bpm</em></span><input name="hr" type="number" min="20" max="250" value="72"></label>
+          <label class="fld"><span>SpO₂ <em>%</em></span><input name="spo2" type="number" min="50" max="100" step="0.1" value="98"></label>
+          <label class="fld"><span>Temperature <em>°C</em></span><input name="temp" type="number" min="30" max="43" step="0.1" value="36.6"></label>
+          <label class="fld"><span>Systolic <em>mmHg</em></span><input name="sys" type="number" min="50" max="250" value="118"></label>
+          <label class="fld"><span>Diastolic <em>mmHg</em></span><input name="dia" type="number" min="30" max="150" value="76"></label>
+          <label class="fld"><span>Resp. rate <em>br/min</em></span><input name="rr" type="number" min="4" max="60" value="16"></label>
+        </div>
+        <label class="chk"><input type="checkbox" name="irregular"><span><b>Irregular heart rhythm</b><small>ECG trace shows irregular beats</small></span></label>
+        <h4 class="sub">HABITAT ENVIRONMENT</h4>
+        <div class="fgrid four">
+          <label class="fld"><span>O₂ <em>%</em></span><input name="o2" type="number" min="10" max="40" step="0.1" value="21"></label>
+          <label class="fld"><span>CO₂ <em>mmHg</em></span><input name="co2" type="number" min="0" max="20" step="0.1" value="2.3"></label>
+          <label class="fld"><span>Cabin temp <em>°C</em></span><input name="ctemp" type="number" min="5" max="45" step="0.1" value="22.4"></label>
+          <label class="fld"><span>Radiation <em>mSv/day</em></span><input name="rad" type="number" min="0" max="500" step="0.01" value="0.36"></label>
+        </div>
+        <h4 class="sub">BODY SYSTEMS <small>(AUTO = derived from the readings)</small></h4>
+        <div class="fgrid three" id="scenSys"></div>
+        <h4 class="sub">HABITAT SYSTEMS</h4>
+        <div class="fgrid four" id="scenShip"></div>
+        <h4 class="sub">AI INSIGHT & ACTIONS <small>(optional — generated if left blank)</small></h4>
+        <div class="fgrid one">
+          <label class="fld"><span>Insight</span><input name="insight" maxlength="160"></label>
+          <label class="fld"><span>Recommended actions <em>one per line</em></span><textarea name="recs" rows="3"></textarea></label>
+        </div>
+      </form>
+    </div>
+    <div class="vbtns"><button class="hud-btn" data-close="scenModal">CANCEL</button><button class="hud-btn primary" id="scenSave">SAVE & RUN SCAN</button></div>
   </div>
 </div>
 

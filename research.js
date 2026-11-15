@@ -36,7 +36,7 @@ async function api(path, body) {
   try {
     r = await fetch(API + path, body === undefined ? { cache: 'no-store' } : { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   } catch {
-    setLink('off', 'OFFLINE');
+    if (linkState !== 'on') setLink('snap', 'SNAPSHOT');
     throw new Error(`Could not reach the Beyond Horizons API (${API}). If it is hosted on a free tier it may be waking up — try again in ~30 s.`);
   }
   if (!r.ok) {
@@ -47,12 +47,26 @@ async function api(path, body) {
   setLink('on', 'ONLINE');
   return r.json();
 }
+/* ---------- offline snapshot: real outputs of the Beyond Horizons API, used when the live link is unavailable ---------- */
+let snapP = null;
+const getSnap = () => (snapP ||= fetch('data/snapshot.json').then(r => { if (!r.ok) throw new Error('snapshot missing'); return r.json(); }));
+const SNAP_NOTE = '<div class="snap-note">OFFLINE SNAPSHOT · real outputs of the Beyond Horizons API (deterministic Ares-180 seed), shown because the live data link is unavailable.</div>';
+async function apiOr(path, body, pick) {
+  try { return { data: await api(path, body), snap: false }; }
+  catch (e) {
+    const sn = await getSnap().catch(() => null);
+    const d = sn && pick(sn);
+    if (!d) throw e;
+    if (linkState !== 'on') setLink('snap', 'SNAPSHOT');
+    return { data: d, snap: true, err: e };
+  }
+}
 async function checkLink() {
-  if (!API) { setLink('off', 'NOT SET'); return; }
+  if (!API) { setLink('snap', 'SNAPSHOT'); return; }
   setLink('wait', 'CONNECTING…');
   const slow = setTimeout(() => linkState === 'wait' && setLink('wait', 'WAKING UP…'), 4000);
-  try { const r = await fetch(API + '/health', { cache: 'no-store' }); setLink(r.ok ? 'on' : 'off', r.ok ? 'ONLINE' : 'ERROR'); }
-  catch { setLink('off', 'OFFLINE'); }
+  try { const r = await fetch(API + '/health', { cache: 'no-store' }); r.ok ? setLink('on', 'ONLINE') : setLink('snap', 'SNAPSHOT'); }
+  catch { setLink('snap', 'SNAPSHOT'); }
   clearTimeout(slow);
 }
 function errBox(el, e, retry) {
@@ -213,7 +227,7 @@ const CREW_COL = ['#39c6ff', '#2dff8a', '#ffb020', '#c78bff'];
 let simData = null, catalog = null;
 async function loadCrewControls() {
   try {
-    catalog = await api('/api/v1/countermeasures/catalog');
+    catalog = (await apiOr('/api/v1/countermeasures/catalog', undefined, sn => sn.catalog)).data;
     $('#cmList').innerHTML = catalog.map(c => `<label class="chk"><input type="checkbox" value="${esc(c.id)}"><span><b>${esc(c.name)}</b><small>${esc(c.target_risk.replace(/_/g, ' '))}</small></span></label>`).join('');
   } catch (e) { $('#cmList').innerHTML = `<p class="note">${esc(e.message)}</p>`; }
 }
@@ -223,8 +237,11 @@ async function runCrewSim() {
   const dest = $('#simDest').value, dur = +$('#simDur').value, delay = +$('#simDelay').value;
   body.mission_overrides = { destination: dest, duration_days: dur, communication_delay_minutes: delay };
   try {
-    simData = await api('/api/v1/simulations/run', body);
-    $('#crewErr').innerHTML = '';
+    const isDefault = dest === 'mars_transit' && dur === 180 && delay === 22;
+    const key = body.countermeasures.map(c => c.id).sort().join('|');
+    const r = await apiOr('/api/v1/simulations/run', body, sn => sn.sims[key]);
+    simData = r.data;
+    $('#crewErr').innerHTML = r.snap ? SNAP_NOTE + (isDefault ? '' : '<div class="snap-note warn">Custom destination / duration / delay need the live data link — showing the default Ares-180 mission with your countermeasures.</div>') : '';
     drawCrewChart(); renderCrewCards(); drawBands();
   } catch (e) { errBox($('#crewErr'), e, runCrewSim); $('#crewCards').innerHTML = ''; }
   out.dataset.ready = '1';
@@ -277,21 +294,23 @@ async function loadEva() {
   const a = $('#evaAlts'), b = $('#debate');
   loading(a); loading(b);
   try {
-    const cf = await api('/api/v1/counterfactual/compare', { mission_id: 'ares-180' });
+    const rc = await apiOr('/api/v1/counterfactual/compare', { mission_id: 'ares-180' }, sn => sn.counterfactual); const cf = rc.data;
     const best = cf.alternatives.reduce((x, y) => y.eva_completion_probability > x.eva_completion_probability ? y : x);
     const bar = (l, v, bad) => `<div class="mbar"><label>${l}<b>${pct(v)}</b></label><div class="bar"><i class="${bad ? (v > 0.55 ? 'crit' : v > 0.35 ? 'warn' : '') : ''}" style="width:${v * 100}%"></i></div></div>`;
     a.innerHTML = cf.alternatives.map(x => `<div class="alt ${x === best ? 'best' : ''}"><h3><span>${x.alternative}</span>${esc(x.description.split(':')[0])}</h3><p>${esc(x.description.split(':').slice(1).join(':').trim())}</p>
       <div class="kv"><span>EVA crew · day</span><b>${esc(x.eva_crew_id)} · D${x.eva_day}</b></div>
       ${bar('EVA completion probability', x.eva_completion_probability)}${bar('Peak operational risk', x.peak_operational_risk, 1)}${bar('Peak cognitive risk', x.peak_cognitive_risk, 1)}${bar('Peak musculoskeletal risk', x.peak_musculoskeletal_risk, 1)}${bar('Mean uncertainty', x.mean_uncertainty, 1)}
       <small>Drivers: ${x.top_drivers.map(esc).join(', ')}</small></div>`).join('') + `<p class="note">${esc(cf.language_note)}</p>`;
+    if (rc.snap) a.insertAdjacentHTML('afterbegin', SNAP_NOTE);
   } catch (e) { errBox(a, e, loadEva); }
   try {
-    const d = await api('/api/v1/debate/ares-180');
+    const rd = await apiOr('/api/v1/debate/ares-180', undefined, sn => sn.debate); const d = rd.data;
     const ROLE = { mission_commander: 'MISSION COMMANDER', flight_surgeon: 'FLIGHT SURGEON', science_officer: 'SCIENCE OFFICER', skeptic: 'SKEPTIC' };
     b.innerHTML = `<p class="deb-day">Decision point: EVA on day ${d.day} · alternatives ${d.alternatives.join(' / ')}</p>` + d.recommendations.map(r => `<div class="role ${r.role}"><h3>${ROLE[r.role] || esc(r.role)}<span class="rec">${r.recommendation ? 'RECOMMENDS ' + r.recommendation : 'NO VOTE'}</span></h3>
       <p>${esc(r.justification)}</p>${r.confidence != null ? `<small>Confidence ${pct(r.confidence)}${r.utility != null ? ' · utility ' + r.utility.toFixed(3) : ''}</small>` : ''}
       ${r.limitations?.length ? `<details><summary>Limitations</summary><ul>${r.limitations.map(l => `<li>${esc(l)}</li>`).join('')}</ul></details>` : ''}</div>`).join('') +
       (d.disagreement_summary ? `<p class="note">${esc(d.disagreement_summary)}</p>` : '') + `<p class="note">${esc(d.disclaimer)}</p>`;
+    if (rd.snap) b.insertAdjacentHTML('afterbegin', SNAP_NOTE);
   } catch (e) { errBox(b, e, loadEva); }
 }
 
@@ -302,16 +321,18 @@ let graph = null, gLayout = null, gHover = null;
 async function loadResearch() {
   loading($('#rankings')); $('#egDetail').innerHTML = '<p class="note">Click a node or a link in the graph to see its evidence, source and limitations.</p>';
   try {
-    graph = await api('/api/v1/evidence/graph');
+    const rg = await apiOr('/api/v1/evidence/graph', undefined, sn => sn.graph); graph = rg.data;
+    $('#egErr').innerHTML = rg.snap ? SNAP_NOTE : '';
     layoutGraph(); drawGraph();
     $('#egLegend').innerHTML = Object.keys(LV_COL).map(k => `<span><i style="background:${LV_COL[k]}"></i>${LV_TXT[k]}</span>`).join('');
   } catch (e) { errBox($('#egErr'), e, loadResearch); }
   try {
-    const r = await api('/api/v1/research-navigator/rankings');
+    const rr = await apiOr('/api/v1/research-navigator/rankings', undefined, sn => sn.rankings); const r = rr.data;
     const mx = Math.max(...r.proposals.map(p => p.priority));
     $('#rankings').innerHTML = `<p class="formula">${esc(r.priority_formula)}</p>` + r.proposals.map((p, i) => `<div class="prop"><h3><span>#${i + 1}</span>${esc(p.title)}<b>${p.priority.toFixed(3)}</b></h3><div class="bar"><i style="width:${p.priority / mx * 100}%"></i></div>
       <p>${esc(p.gap_description)}</p><small>impact ${p.mission_impact} · uncertainty ${p.uncertainty} · info gain ${p.expected_information_gain} · cost ${p.relative_cost}</small>
       ${p.limitations?.length ? `<details><summary>Limitations</summary><ul>${p.limitations.map(l => `<li>${esc(l)}</li>`).join('')}</ul></details>` : ''}</div>`).join('') + `<p class="note">${esc(r.language_note)}</p>`;
+    if (rr.snap) $('#rankings').insertAdjacentHTML('afterbegin', SNAP_NOTE);
   } catch (e) { errBox($('#rankings'), e, loadResearch); }
 }
 function layoutGraph() {
@@ -380,7 +401,7 @@ function showGraphDetail(hit) {
 async function loadGenes() {
   const el = $('#realGenes'); loading(el);
   try {
-    const g = await api('/api/v1/evidence/gene-expression');
+    const rgn = await apiOr('/api/v1/evidence/gene-expression', undefined, sn => sn.genes); const g = rgn.data;
     const lg = v => Math.log10(1 + Math.max(0, v || 0)), mx = Math.max(...g.records.map(r => lg(r.fold_change_9gy_vs_control)));
     el.innerHTML = `<div class="osd-card"><b>NASA OSDR · OSD-720 / GLDS-699</b> <button class="src" data-src="osd720">dataset</button> <button class="src" data-src="twins">NASA Twins Study</button><p>Mouse left-ventricle transcriptome (RNA-seq, n = 60) after NSRL simulated galactic cosmic rays or gamma radiation — a NASA Human Research Program dataset linking space radiation to lasting cardiac gene-expression changes. Ground-based simulated radiation, not spaceflight.</p></div>
       <p class="cite">${esc(g.study_citation)} <button class="src" data-src="nag9_1024">NAG9-1024</button></p><p class="meta">${esc(g.organism)} · ${esc(g.tissue)} · ${esc(g.radiation_condition)} · ${esc(g.timepoint)}</p>
@@ -388,6 +409,7 @@ async function loadGenes() {
       ${g.records.map(r => `<tr><td><b>${esc(r.gene_symbol)}</b><small>${esc(r.accession)}</small></td><td>${esc(r.category.replace(/_/g, ' '))}</td><td>${r.control.toLocaleString()}</td><td>${r.dose_9gy.toLocaleString()}</td><td>${r.dose_9gy_plus_vitamin_a.toLocaleString()}</td>
         <td><div class="fc"><i style="width:${lg(r.fold_change_9gy_vs_control) / mx * 100}%"></i><b>${r.fold_change_9gy_vs_control ?? '—'}×</b></div></td><td class="${r.vitamin_a_reduced_the_9gy_effect ? 'ok' : ''}">${r.vitamin_a_reduced_the_9gy_effect ? 'YES' : 'NO'}</td></tr>`).join('')}</table>
       <p class="note">${esc(g.evidence_reference)} — ${g.limitations.map(esc).join(' ')}</p>`;
+    if (rgn.snap) el.insertAdjacentHTML('afterbegin', SNAP_NOTE);
   } catch (e) { errBox(el, e, loadGenes); }
 }
 
@@ -416,7 +438,7 @@ async function openChat(prefill) {
   if (prefill) { $('#chatIn').value = prefill; }
   $('#chatIn').focus();
   if (!aiStatus) {
-    try { aiStatus = await api('/api/v1/assistant/status'); } catch (e) { aiStatus = { configured: false, notice: e.message }; }
+    try { aiStatus = await api('/api/v1/assistant/status'); } catch (e) { aiStatus = { configured: false, notice: API ? 'The data link is offline right now (a free-tier backend can take ~30 s to wake up). Try again shortly.' : 'Beyond AI runs on the live data link, which is not connected on this copy of the HUD. Open the HUD inside the full platform (3D Health HUD) to chat.' }; }
     $('#chatState').innerHTML = aiStatus.configured ? `<span class="ok">● ONLINE</span> ${esc(aiStatus.model || '')}` : `<span class="warn">● OFFLINE</span> ${esc(aiStatus.notice || '')}`;
   }
 }
@@ -428,7 +450,7 @@ async function sendChat() {
   try {
     const r = await api('/api/v1/assistant/ask', { message: msg, history, vitals_summary: vitalsSummary() });
     chat.push({ role: 'assistant', content: r.answer });
-  } catch (e) { chat.push({ role: 'assistant', content: '⚠ ' + e.message }); }
+  } catch (e) { chat.push({ role: 'assistant', content: '⚠ ' + (API ? e.message : 'Beyond AI is not connected on this copy of the HUD (no data link). Your message is saved; open the HUD inside the full platform to get an answer.') }); }
   chat = chat.slice(-60); lsSet(KEYS.chat, chat); renderChat();
 }
 

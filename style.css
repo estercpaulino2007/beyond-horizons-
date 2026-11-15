@@ -62,7 +62,7 @@ body::before{ /* subtle tech grid */
 .brand-txt h1{font-family:Orbitron;font-weight:800;font-size:33px;letter-spacing:3px;color:#fff;text-shadow:0 0 14px rgba(90,200,255,.75)}
 .brand-txt p{font-family:Orbitron;font-weight:500;font-size:13.5px;letter-spacing:3px;color:var(--cy2);margin-top:6px}
 .mission-bar{position:absolute;left:600px;top:8px;width:930px;height:112px}
-.mb-info{display:flex;align-items:center;justify-content:center;gap:18px;height:44px;font-family:Orbitron;font-size:14px;letter-spacing:1.5px;color:var(--dim);
+.mb-info{display:flex;align-items:center;justify-content:center;gap:12px;height:44px;font-family:Orbitron;font-size:13px;white-space:nowrap;letter-spacing:1.5px;color:var(--dim);
   border-bottom:1px solid var(--line);background:linear-gradient(90deg,transparent,rgba(20,70,140,.35),transparent)}
 .mb-info b{color:#fff;font-weight:600}
 .mb-info .sep{width:1px;height:20px;background:var(--line)}
@@ -440,3 +440,33 @@ details{margin-top:6px;font-size:15px;color:var(--dim)} details summary{cursor:p
 .osd-card b{font-size:16px} .osd-card p{font-size:15px;color:#d8ebff;margin:4px 0}
 .simcards .cards{position:absolute;left:0;right:0;top:62px;bottom:10px;overflow:auto;align-content:start}
 .card{min-height:0;padding:12px 14px}
+
+/* ================= v4: customization, snapshot, interactive views ================= */
+.link-pill.snap i{background:var(--warn);box-shadow:0 0 8px var(--warn)} .link-pill.snap b{color:var(--warn)}
+.snap-note{margin:6px 0 10px;padding:7px 12px;border:1px solid rgba(255,176,32,.45);border-radius:4px;background:rgba(60,40,0,.3);font-size:14px;color:#ffd99a}
+.snap-note.warn{border-color:rgba(255,120,40,.5)}
+#egErr .snap-note{margin:0 20px}
+.editable{cursor:pointer;border-radius:3px;padding:2px 4px;transition:.2s}
+.editable:hover{background:rgba(57,198,255,.15);color:#fff}
+.editable .pen{font-style:normal;color:var(--cy2);font-size:12px}
+.view-tip{position:absolute;right:24px;top:20px;font-family:Orbitron;font-size:10px;letter-spacing:1.2px;color:var(--dim)}
+#app .mini3d.interactive{pointer-events:auto;cursor:grab;touch-action:none}
+#app .mini3d.interactive.drag{cursor:grabbing}
+.new-scen{position:absolute;right:20px;top:12px;padding:7px 12px;font-size:12px}
+.card{position:relative}
+.card.user{border-color:rgba(199,139,255,.55)}
+.lvl.usr{color:#d9b8ff;border-color:rgba(199,139,255,.6);margin-right:6px}
+.card-act{position:absolute;right:12px;bottom:10px;display:flex;gap:6px}
+.card-act button{font-family:Orbitron;font-size:10px;letter-spacing:1px;color:var(--cy2);background:rgba(4,20,46,.9);border:1px solid var(--line);border-radius:3px;padding:4px 8px;cursor:pointer}
+.card-act button[data-del]{color:#ff9aa5;border-color:rgba(255,59,78,.5)}
+.fgrid.one{grid-template-columns:1fr} .fgrid.three{grid-template-columns:repeat(3,1fr)} .fgrid.four{grid-template-columns:repeat(4,1fr)}
+.fld textarea{width:100%;font-family:Rajdhani;font-size:16px;color:#fff;background:rgba(4,20,46,.9);border:1px solid var(--line);border-radius:4px;padding:8px 10px;resize:vertical}
+.fld select{font-family:Rajdhani;font-size:16px}
+.cfg-box{width:min(560px,94vw)}
+.scen-box{width:min(980px,96vw);height:min(900px,94vh);display:flex;flex-direction:column;overflow:hidden}
+.scen-body{flex:1;padding-bottom:8px}
+.sub small{font-family:Rajdhani;font-size:13px;color:var(--dim);letter-spacing:0}
+/* chat: no flickering scrollbars while typing */
+.chat-box,.src-box{overflow:hidden}
+#chatIn{height:64px;overflow-y:auto;scrollbar-gutter:stable}
+#chatLog{scrollbar-gutter:stable}

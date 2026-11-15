@@ -105,6 +105,13 @@ const SCENARIOS = [
     recs: ['Run an onboard OCT / fundoscopy exam and compare with the pre-flight baseline.', 'Log any near-vision blur or headache.', 'Countermeasures under study include lower-body negative pressure and B-vitamin status (research stage).'] },
 ];
 function scen() { return SCENARIOS[state.scen]; }
+const BASE_COUNT = SCENARIOS.length;
+const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable */ } };
+const SET_KEY = 'beyond-horizons:hud-settings', CS_KEY = 'beyond-horizons:custom-scenarios';
+const DEFAULT_SET = { astronaut: 'J. KELLER', mission: 'STS-1187', phase: 'Low Earth Orbit ops', crew: 4, elapsedH: 124.54 };
+let settings = { ...DEFAULT_SET, ...lsGet(SET_KEY, {}) };
+let selfScenario = null;
 
 /* ============================================================
    STATE
@@ -113,7 +120,7 @@ const state = {
   mode: 'astronaut', scen: 0, t0: performance.now(),
   v: { ...BASE_V }, e: { ...BASE_E },
   hist: { hr: [], spo2: [], temp: [], sys: [], rr: [] },
-  scanProg: 0.87, scanFast: false, neural: 92.4,
+  scanProg: 0.87, scanFast: false, neural: 92.4, clock0: performance.now(),
 };
 
 /* ============================================================
@@ -574,8 +581,9 @@ function setupMiniViews() {
       const { obj } = holoClone(models.dna.scene, { color: 0x4fc4ff, base: 0.25, rim: 1.2, pow: 1.6 });
       const tilt = new THREE.Group(), spin = new THREE.Group(); spin.add(obj); tilt.add(spin); s.add(tilt);
       spin.rotation.x = Math.PI / 2; tilt.rotation.z = big ? -0.25 : -0.62;
-      frameObject(tilt, cam, big ? 1.0 : 1.12);
-      return { s, cam, update: t => { obj.rotation.z = t * 0.6; } };
+      const fr = frameObject(tilt, cam, big ? 1.0 : 1.12);
+      const orb = big ? orbitable('dnabig', cam, fr.c.clone()) : null;
+      return { s, cam, update: t => { obj.rotation.z = t * 0.6; orb?.(); } };
     };
     const a = mk(false); addView('dna', a.s, a.cam, a.update);
     if (models.dna) { const b = mk(true); addView('dnabig', b.s, b.cam, b.update); }
@@ -598,8 +606,18 @@ function setupMiniViews() {
       const iss = big ? models.iss.scene : models.iss.scene.clone();
       iss.traverse(o => { if (o.isMesh && o.material) { o.material.side = THREE.DoubleSide; o.geometry.computeBoundingBox(); const sz = o.geometry.boundingBox.getSize(new THREE.Vector3()); if (sz.x > 18 || sz.z > 18) o.visible = false; } });
       s.add(iss); s.add(new THREE.AmbientLight(0xffffff, 1.5));
-      const P = ISS_PATH;
+      const P = ISS_PATH, m = { manual: false, yaw: 0, pitch: 0, x: P.a[0], z: P.a[2] };
+      if (big) interact('issbig', {
+        drag: (dx, dy) => { if (!m.manual) { m.manual = true; m.x = cam.position.x; m.z = cam.position.z; } m.yaw += dx * 0.004; m.pitch = THREE.MathUtils.clamp(m.pitch - dy * 0.004, -0.9, 0.9); },
+        wheel: dy => { if (!m.manual) { m.manual = true; m.x = cam.position.x; m.z = cam.position.z; } const st = -dy * 0.0025; m.x = THREE.MathUtils.clamp(m.x + Math.cos(m.yaw) * st, -3.3, 1.4); m.z = THREE.MathUtils.clamp(m.z + Math.sin(m.yaw) * st, -0.7, 0.7); },
+        reset: () => { m.manual = false; m.yaw = 0; m.pitch = 0; },
+      });
       return { s, cam, update: t => {
+        if (m.manual) {
+          cam.position.set(m.x, P.a[1], m.z);
+          cam.lookAt(m.x + Math.cos(m.yaw) * Math.cos(m.pitch), P.a[1] + Math.sin(m.pitch), m.z + Math.sin(m.yaw) * Math.cos(m.pitch));
+          return;
+        }
         const u = (Math.sin(t * (big ? 0.05 : 0.07)) * 0.5 + 0.5);
         cam.position.set(THREE.MathUtils.lerp(P.a[0], P.b[0], u), P.a[1], THREE.MathUtils.lerp(P.a[2], P.b[2], u));
         const yaw = Math.sin(t * 0.21) * 0.32 + P.yaw;
@@ -614,12 +632,13 @@ function setupMiniViews() {
     const s = basicLights(new THREE.Scene(), 0xffd8e0), cam = new THREE.PerspectiveCamera(30, 1, 0.001, 100);
     const l = models.lungs.scene; const piv = new THREE.Group(); piv.add(l); s.add(piv);
     const bb = new THREE.Box3().setFromObject(l); l.position.sub(bb.getCenter(new THREE.Vector3()));
-    frameObject(piv, cam, 1.0);
+    const lfr = frameObject(piv, cam, 1.0);
+    const lorb = orbitable('lungs', cam, lfr.c.clone());
     const tint = new THREE.Color();
     l.traverse(o => { if (o.isMesh) o.material = o.material.clone(); });
     mini.lungs = l;
     addView('lungs', s, cam, t => {
-      piv.rotation.y = Math.sin(t * 0.4) * 0.6;
+      piv.rotation.y = Math.sin(t * 0.4) * 0.6; lorb();
       const rr = state.v.rr, br = 1 + 0.035 * Math.sin(t * Math.PI * 2 * rr / 60);
       piv.scale.set(br, 1 + (br - 1) * 0.6, br);
       const stv = { ...ALL_OK, ...scen().organs }.respiratory;
@@ -643,7 +662,8 @@ function setupMiniViews() {
     s.add(ship);
     if (models.station) { const gal = models.station.scene; gal.scale.setScalar(7); gal.position.set(4, -2, -60); gal.traverse(o => { if (o.isMesh || o.isPoints) { o.material.transparent = true; o.material.opacity = 0.28; o.material.depthWrite = false; } }); s.add(gal); }
     cam.position.set(0, 1.5, 15); cam.lookAt(0, 0.6, 0);
-    addView('transit', s, cam, t => {
+    const torb = orbitable('transit', cam, new THREE.Vector3(0, 0.6, 0));
+    addView('transit', s, cam, t => { torb();
       earth.rotation.y = t * 0.15; mars.rotation.y = t * 0.1;
       ship.position.copy(curve.getPoint(0.06 + 0.03 * Math.sin(t * 0.5)));
       if (models.station) models.station.scene.rotation.y = t * 0.01;
@@ -863,8 +883,14 @@ function buildScenarioUI() {
   sel.innerHTML = SCENARIOS.map((s, i) => `<option value="${i}">${i + 1}. ${s.name}</option>`).join('');
   sel.value = state.scen;
   sel.onchange = () => setScenario(+sel.value);
-  $('#simCards').innerHTML = SCENARIOS.map((s, i) => `<div class="card${i === state.scen ? ' on' : ''}" data-i="${i}"><span class="lvl ${s.level}">${s.level === 'ok' ? 'NOMINAL' : s.level === 'warn' ? 'WARNING' : 'CRITICAL'}</span><h3>${i + 1}. ${s.name}</h3><p>${s.desc}</p><div class="srcs">${chips(s.src)}</div><span class="k">key [${i + 1}]</span></div>`).join('');
-  $$('.card').forEach(c => c.onclick = () => setScenario(+c.dataset.i));
+  const E = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  $('#simCards').innerHTML = SCENARIOS.map((s, i) => `<div class="card${i === state.scen ? ' on' : ''}${s.custom ? ' user' : ''}" data-i="${i}"><span class="lvl ${s.level}">${s.level === 'ok' ? 'NOMINAL' : s.level === 'warn' ? 'WARNING' : 'CRITICAL'}</span>${s.custom ? '<span class="lvl usr">YOUR SCENARIO</span>' : ''}<h3>${i + 1}. ${E(s.name)}</h3><p>${E(s.desc)}</p><div class="srcs">${chips(s.src)}</div><span class="k">${i < 9 ? `key [${i + 1}]` : ''}</span>${s.custom ? `<span class="card-act"><button data-edit="${s.id}" title="Edit">✎ EDIT</button><button data-del="${s.id}" title="Delete">✕ DELETE</button></span>` : ''}</div>`).join('');
+  $$('.card').forEach(c => c.onclick = e => {
+    const ed = e.target.closest('[data-edit]'), del = e.target.closest('[data-del]');
+    if (ed) { e.stopPropagation(); openScenarioEditor(ed.dataset.edit); return; }
+    if (del) { e.stopPropagation(); if (del.dataset.armed) deleteCustom(del.dataset.del); else { del.dataset.armed = 1; del.textContent = 'CONFIRM?'; setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = '✕ DELETE'; } }, 3000); } return; }
+    setScenario(+c.dataset.i);
+  });
 }
 // ---- link between MY VITALS (Beyond Horizons API evaluation) and the hologram ----
 const CAT_TO_SYS = { cardiac: 'cardiovascular', temperature: 'cardiovascular', respiratory: 'respiratory', sleep_fatigue: 'neurological', activity_muscle: 'muscular', hydration_other: 'digestive' };
@@ -883,14 +909,124 @@ function registerSelfVitals(entry, ev) {
     recs: ev.metrics.flatMap(m => (m.recommendations || []).map(r => `${m.label}: ${r}`)).slice(0, 6),
   };
   if (!s.recs.length) s.recs = ['Keep logging readings to build a personal trend.'];
-  const i = SCENARIOS.findIndex(x => x.id === 'self');
-  if (i >= 0) SCENARIOS[i] = s; else SCENARIOS.push(s);
-  buildScenarioUI();
+  selfScenario = s;
+  rebuildScenarioList();
   return SCENARIOS.findIndex(x => x.id === 'self');
 }
 function applySelfVitals(entry, ev) {
   const i = registerSelfVitals(entry, ev);
   setScenario(i); if (state.mode !== 'scan') setMode('scan');
+}
+// ---------- customization: mission settings ----------
+function applySettings() {
+  CONFIG.astronaut = settings.astronaut; CONFIG.mission = settings.mission;
+  $('#hdAstro').textContent = String(settings.astronaut).toUpperCase(); $('#hdMission').textContent = String(settings.mission).toUpperCase();
+  $('#tPhase').textContent = settings.phase; $('#tCrew').textContent = settings.crew;
+  CONFIG.startElapsed = Math.round(+settings.elapsedH * 3600) || 0; state.clock0 = performance.now(); clockTick();
+}
+function openSettings() {
+  const f = $('#cfgForm'); for (const k of Object.keys(DEFAULT_SET)) f.elements[k].value = settings[k];
+  $('#cfgModal').classList.remove('hidden'); f.elements.astronaut.focus();
+}
+function saveSettings() {
+  const f = $('#cfgForm'), n = {};
+  for (const k of Object.keys(DEFAULT_SET)) n[k] = f.elements[k].value.trim();
+  n.crew = Math.max(1, Math.min(12, parseInt(n.crew) || 4)); n.elapsedH = Math.max(0, +n.elapsedH || 0);
+  if (!n.astronaut) n.astronaut = DEFAULT_SET.astronaut; if (!n.mission) n.mission = DEFAULT_SET.mission; if (!n.phase) n.phase = DEFAULT_SET.phase;
+  settings = n; lsSet(SET_KEY, settings); applySettings(); $('#cfgModal').classList.add('hidden');
+}
+// ---------- customization: user scenarios ----------
+const BODY_SYS = ['skeletal', 'muscular', 'cardiovascular', 'respiratory', 'neurological', 'digestive'];
+const SHIP_SYS = [['life', 'Life support'], ['thermal', 'Thermal control'], ['rad', 'Radiation shielding'], ['comm', 'Communication']];
+const worst = (...xs) => xs.includes('crit') ? 'crit' : xs.includes('warn') ? 'warn' : 'ok';
+function scenarioFromForm(d) {
+  const v = { hr: +d.hr, spo2: Math.min(100, +d.spo2), temp: +d.temp, sys: +d.sys, dia: +d.dia, rr: +d.rr };
+  const e = { o2: +d.o2, co2: +d.co2 / 7.6, press: 14.7, temp: +d.ctemp, rad: +d.rad / 24 };
+  const c = (k, x) => classify(x, RANGES[k]), ce = (k, x) => classify(x, ENV_RANGES[k]);
+  const auto = {
+    cardiovascular: worst(c('hr', v.hr), c('sys', v.sys), c('temp', v.temp), d.irregular ? 'warn' : 'ok'),
+    respiratory: worst(c('spo2', v.spo2), c('rr', v.rr)),
+    neurological: c('spo2', v.spo2) === 'crit' || c('temp', v.temp) === 'crit' ? 'warn' : 'ok',
+    skeletal: ce('rad', e.rad) === 'crit' ? 'warn' : 'ok', muscular: 'ok', digestive: ce('rad', e.rad) === 'crit' ? 'warn' : 'ok',
+  };
+  const shipAuto = { life: worst(ce('o2', e.o2), ce('co2', e.co2)), thermal: ce('temp', e.temp), rad: ce('rad', e.rad), comm: 'ok' };
+  const organs = {}, sys = {};
+  BODY_SYS.forEach(k => { const x = d['b_' + k] === 'auto' ? auto[k] : d['b_' + k]; if (x !== 'ok') organs[k] = x; });
+  SHIP_SYS.forEach(([k]) => { const x = d['s_' + k] === 'auto' ? shipAuto[k] : d['s_' + k]; if (x !== 'ok') sys[k] = x; });
+  const vs = { hr: c('hr', v.hr), spo2: c('spo2', v.spo2), temp: c('temp', v.temp), bp: c('sys', v.sys), rr: c('rr', v.rr) };
+  const level = worst(...Object.values(organs), ...Object.values(sys), ...Object.values(vs));
+  const flags = [];
+  if (vs.hr !== 'ok') flags.push(`HR ${v.hr} bpm`); if (vs.spo2 !== 'ok') flags.push(`SpO₂ ${v.spo2}%`); if (vs.temp !== 'ok') flags.push(`temp ${v.temp} °C`);
+  if (vs.bp !== 'ok') flags.push(`BP ${v.sys}/${v.dia}`); if (vs.rr !== 'ok') flags.push(`RR ${v.rr}`);
+  if (ce('o2', e.o2) !== 'ok') flags.push(`cabin O₂ ${e.o2}%`); if (ce('co2', e.co2) !== 'ok') flags.push(`CO₂ ${(+d.co2).toFixed(1)} mmHg (limit 3)`);
+  if (ce('temp', e.temp) !== 'ok') flags.push(`cabin ${e.temp} °C`); if (ce('rad', e.rad) !== 'ok') flags.push(`dose ${(+d.rad).toFixed(2)} mSv/day`);
+  const cls = level === 'crit' ? 'c' : 'w';
+  const ai = d.insight ? [level === 'ok' ? d.insight : `<span class="${cls}">${d.insight.replace(/</g, '&lt;')}</span>`] :
+    flags.length ? [`<span class="${cls}">Flagged: ${flags.join(', ')}.</span>`, 'Checked against NASA-STD-3001 habitat limits and clinical vital-sign ranges.'] : ['All readings within limits.', 'Checked against NASA-STD-3001 habitat limits and clinical vital-sign ranges.'];
+  const recs = (d.recs || '').split('\n').map(x => x.trim()).filter(Boolean);
+  const src = ['clinical'];
+  if (ce('co2', e.co2) !== 'ok') src.push('std3001_co2'); if (ce('o2', e.o2) !== 'ok') src.push('std3001_atm'); if (ce('temp', e.temp) !== 'ok') src.push('std3001_env');
+  if (ce('rad', e.rad) !== 'ok') src.push('iss_dose', 'msl_rad');
+  return { id: d.id, custom: true, form: d, name: d.name || 'My scenario', desc: d.desc || 'User-defined scenario.', level, v, e, irregular: !!d.irregular, organs, sys, src,
+    gen: { expr: ce('rad', e.rad) === 'crit' ? 92.5 : 97.8, mut: ce('rad', e.rad) === 'crit' ? ['Elevated', 60] : ['Low', 23] }, neural: organs.neurological ? 84 : 91.5,
+    ai, recs: recs.length ? recs : ['Review the flagged readings with the flight surgeon.', 'Re-run the body scan after corrective action.'] };
+}
+function rebuildScenarioList() {
+  const cur = SCENARIOS[state.scen]?.id;
+  SCENARIOS.splice(BASE_COUNT);
+  lsGet(CS_KEY, []).forEach(d => SCENARIOS.push(scenarioFromForm(d)));
+  if (selfScenario) SCENARIOS.push(selfScenario);
+  const ni = SCENARIOS.findIndex(x => x.id === cur); state.scen = ni >= 0 ? ni : 0;
+  buildScenarioUI();
+}
+function openScenarioEditor(id) {
+  const f = $('#scenForm'); f.reset();
+  const opt = sel => ['auto', 'ok', 'warn', 'crit'].map(o => `<option value="${o}"${o === sel ? ' selected' : ''}>${{ auto: 'Auto', ok: 'OK', warn: 'Watch', crit: 'Alert' }[o]}</option>`).join('');
+  const d = id ? lsGet(CS_KEY, []).find(x => x.id === id) : null;
+  $('#scenSys').innerHTML = BODY_SYS.map(k => `<label class="fld"><span>${k[0].toUpperCase() + k.slice(1)}</span><select name="b_${k}">${opt(d?.['b_' + k] || 'auto')}</select></label>`).join('');
+  $('#scenShip').innerHTML = SHIP_SYS.map(([k, l]) => `<label class="fld"><span>${l}</span><select name="s_${k}">${opt(d?.['s_' + k] || 'auto')}</select></label>`).join('');
+  if (d) for (const [k, v] of Object.entries(d)) { const el = f.elements[k]; if (!el) continue; if (el.type === 'checkbox') el.checked = !!v; else el.value = v; }
+  f.dataset.id = id || '';
+  $('#scenTitle').textContent = id ? 'EDIT SCENARIO' : 'CREATE SCENARIO';
+  $('#scenModal').classList.remove('hidden'); f.elements.name.focus();
+}
+function saveScenarioEditor() {
+  const f = $('#scenForm');
+  if (!f.reportValidity()) return;
+  const d = { id: f.dataset.id || 'user-' + Date.now().toString(36) };
+  for (const el of f.elements) if (el.name) d[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+  const list = lsGet(CS_KEY, []), i = list.findIndex(x => x.id === d.id);
+  if (i >= 0) list[i] = d; else list.push(d);
+  lsSet(CS_KEY, list); rebuildScenarioList();
+  $('#scenModal').classList.add('hidden');
+  setScenario(SCENARIOS.findIndex(x => x.id === d.id)); goTab('overview'); setMode('scan');
+}
+function deleteCustom(id) {
+  lsSet(CS_KEY, lsGet(CS_KEY, []).filter(x => x.id !== id)); rebuildScenarioList(); setScenario(state.scen);
+}
+// ---------- drag / zoom for the large 3D views ----------
+function interact(name, h) {
+  const el = document.querySelector(`.mini3d[data-view="${name}"]`); if (!el) return;
+  el.classList.add('interactive'); let down = null;
+  el.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId); el.classList.add('drag'); });
+  el.addEventListener('pointermove', e => { if (!down) return; h.drag?.(e.clientX - down.x, e.clientY - down.y); down = { x: e.clientX, y: e.clientY }; });
+  const up = () => { down = null; el.classList.remove('drag'); };
+  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  el.addEventListener('wheel', e => { e.preventDefault(); h.wheel?.(e.deltaY); }, { passive: false });
+  el.addEventListener('dblclick', () => h.reset?.());
+}
+function orbitable(name, cam, target) {
+  const base = cam.position.clone().sub(target), u = { yaw: 0, pitch: 0, zoom: 1 };
+  interact(name, {
+    drag: (dx, dy) => { u.yaw -= dx * 0.006; u.pitch = THREE.MathUtils.clamp(u.pitch + dy * 0.006, -1.2, 1.2); },
+    wheel: dy => { u.zoom = THREE.MathUtils.clamp(u.zoom * (1 + dy * 0.001), 0.35, 2.5); },
+    reset: () => { u.yaw = 0; u.pitch = 0; u.zoom = 1; },
+  });
+  const sph = new THREE.Spherical(), off = new THREE.Vector3();
+  return () => {
+    sph.setFromVector3(base); sph.theta += u.yaw; sph.phi = THREE.MathUtils.clamp(sph.phi + u.pitch, 0.1, Math.PI - 0.1); sph.radius *= u.zoom;
+    off.setFromSpherical(sph); cam.position.copy(target).add(off); cam.lookAt(target);
+  };
 }
 function hudSummary() {
   const v = state.v;
@@ -908,6 +1044,14 @@ function buildStatic() {
   $$('#modeSwitch button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
   $$('.tab').forEach(t => t.onclick = () => goTab(t.dataset.tab));
   $('#viewReset').onclick = () => holo.ctl?.reset();
+  ['hdEdit1', 'hdEdit2'].forEach(id => $('#' + id).onclick = openSettings);
+  $('#cfgSave').onclick = saveSettings;
+  $('#cfgReset').onclick = () => { settings = { ...DEFAULT_SET }; lsSet(SET_KEY, settings); applySettings(); openSettings(); };
+  $('#newScen').onclick = () => openScenarioEditor(null);
+  $('#scenSave').onclick = saveScenarioEditor;
+  $$('[data-close]').forEach(b => b.onclick = () => $('#' + b.dataset.close).classList.add('hidden'));
+  ['cfgModal', 'scenModal'].forEach(id => $('#' + id).addEventListener('click', e => { if (e.target.id === id) e.target.classList.add('hidden'); }));
+  rebuildScenarioList();
   $('#fsBtn').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
   $('#aiBtn').onclick = () => {
     const sc = scen(), st = vitalStatus();
@@ -922,9 +1066,9 @@ function buildStatic() {
     if (['SELECT', 'INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
     if (e.key === 'm' || e.key === 'M') setMode(state.mode === 'scan' ? 'astronaut' : 'scan');
     const n = +e.key; if (n >= 1 && n <= SCENARIOS.length) setScenario(n - 1);
-    if (e.key === 'Escape') $('#modal').classList.add('hidden');
+    if (e.key === 'Escape') $$('.modal').forEach(m => m.classList.add('hidden'));
   });
-  $('#hdMission').textContent = CONFIG.mission; $('#hdAstro').textContent = CONFIG.astronaut;
+  applySettings();
 
   // waves
   $$('.vrow').forEach(row => {
@@ -982,7 +1126,7 @@ const hms = s => `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:$
 function clockTick() {
   const d = new Date();
   $('#clock').textContent = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
-  const el = (performance.now() - state.t0) / 1000;
+  const el = (performance.now() - state.clock0) / 1000;
   $('#mElapsed').textContent = hms(CONFIG.startElapsed + el);
   $('#mNext').textContent = '+ ' + hms(Math.max(0, CONFIG.startNextCheckpoint - el));
   $('#tDay').textContent = Math.floor((CONFIG.startElapsed + el) / 86400) + 1;
