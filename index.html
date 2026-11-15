@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beyond Horizons — Space Health Monitoring System</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2244%22 fill=%22%2303204f%22 stroke=%22%235fd4ff%22 stroke-width=%224%22/%3E%3Ctext x=%2250%22 y=%2262%22 text-anchor=%22middle%22 font-size=%2234%22 font-family=%22sans-serif%22 font-weight=%22bold%22 fill=%22white%22%3EBH%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 3D layers (outside the scaled HUD so they stay crisp) -->
+<canvas id="holoCanvas"></canvas>
+<canvas id="miniCanvas"></canvas>
+<div id="markers"></div>
+
+<!-- Loading screen -->
+<div id="loader">
+  <div class="ld-ring"></div>
+  <div class="ld-title">BEYOND HORIZONS</div>
+  <div class="ld-sub">INITIALIZING SPACE HEALTH MONITORING SYSTEM</div>
+  <div class="ld-bar"><i id="ldBar"></i></div>
+  <div class="ld-pct" id="ldPct">0%</div>
+</div>
+
+<div id="stage">
+<div id="app">
+
+  <!-- ================= HEADER ================= -->
+  <header class="top">
+    <div class="brand panel">
+      <div class="logo" id="logoSlot">
+        <svg viewBox="0 0 100 100" class="emblem" id="emblemSvg">
+          <defs><radialGradient id="eg" cx="40%" cy="35%"><stop offset="0" stop-color="#2a8cff"/><stop offset="1" stop-color="#03204f"/></radialGradient></defs>
+          <circle cx="50" cy="50" r="40" fill="url(#eg)" stroke="#5fd4ff" stroke-width="1.5"/>
+          <ellipse cx="50" cy="52" rx="47" ry="14" fill="none" stroke="#ff4d5e" stroke-width="3" transform="rotate(-22 50 52)"/>
+          <text x="50" y="58" text-anchor="middle" font-family="Orbitron" font-weight="800" font-size="22" fill="#fff">BH</text>
+          <circle cx="24" cy="30" r="1.4" fill="#fff"/><circle cx="72" cy="26" r="1" fill="#fff"/><circle cx="68" cy="74" r="1.2" fill="#fff"/>
+        </svg>
+      </div>
+      <div class="brand-txt">
+        <h1>BEYOND HORIZONS</h1>
+        <p>SPACE HEALTH MONITORING SYSTEM</p>
+      </div>
+    </div>
+
+    <div class="mission-bar">
+      <div class="mb-info">
+        <span>MISSION: <b id="hdMission">STS-1187</b></span>
+        <span class="sep"></span>
+        <span>ASTRONAUT: <b id="hdAstro">J. KELLER</b></span>
+        <span class="sep"></span>
+        <span class="status-pill" id="hdStatus"><i></i>STATUS: <b>STABLE</b></span>
+      </div>
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-tab="overview">OVERVIEW</button>
+        <button class="tab" data-tab="biometrics">BIOMETRICS</button>
+        <button class="tab" data-tab="genetics">GENETICS</button>
+        <button class="tab" data-tab="simulations">SIMULATIONS</button>
+        <button class="tab" data-tab="mission">MISSION</button>
+      </nav>
+    </div>
+
+    <div class="clock panel">
+      <span id="clock">2026-11-09 15:24:17 UTC</span>
+    </div>
+    <button class="fs-btn panel" id="fsBtn" title="Fullscreen">
+      <svg viewBox="0 0 24 24"><path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+    </button>
+  </header>
+
+  <!-- ================= OVERVIEW ================= -->
+  <section class="view active" id="view-overview">
+
+    <!-- VITAL SIGNS -->
+    <div class="panel vitals" id="pVitals">
+      <h2>VITAL SIGNS</h2>
+      <div class="vrow" data-k="hr">
+        <div class="vicon"><svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.5-9.3C1 8 3.4 4.5 7 4.5c2 0 3.6 1.1 5 3 1.4-1.9 3-3 5-3 3.6 0 6 3.5 4.5 7.2C19.5 16.4 12 21 12 21z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 12h3l1.5-3 3 6 1.5-3H19" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+        <div class="vdata"><label>HEART RATE</label><div class="vval"><b>72</b><em class="d up">▲ +2</em></div><small>bpm</small></div>
+        <canvas class="wave"></canvas>
+      </div>
+      <div class="vrow" data-k="spo2">
+        <div class="vicon"><svg viewBox="0 0 24 24"><path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9.5 15a2.5 2.5 0 0 0 2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+        <div class="vdata"><label>SpO<sub>2</sub></label><div class="vval"><b>98</b><span class="u">%</span><em class="d up">▲ +0.1</em></div></div>
+        <canvas class="wave"></canvas>
+      </div>
+      <div class="vrow" data-k="temp">
+        <div class="vicon"><svg viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="18" r="1.6" fill="currentColor"/><path d="M12 16V9" stroke="currentColor" stroke-width="1.6"/></svg></div>
+        <div class="vdata"><label>TEMPERATURE</label><div class="vval"><b>36.6</b><span class="u">°C</span></div><em class="d flat">— 0.0</em></div>
+        <canvas class="wave"></canvas>
+      </div>
+      <div class="vrow" data-k="bp">
+        <div class="vicon"><svg viewBox="0 0 24 24"><path d="M4 16a8 8 0 1 1 16 0" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 16l4-5" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="16" r="1.5" fill="currentColor"/></svg></div>
+        <div class="vdata"><label>BLOOD PRESSURE</label><div class="vval"><b>118/76</b><em class="d up">▲ +1</em></div><small>mmHg</small></div>
+        <canvas class="wave"></canvas>
+      </div>
+      <div class="vrow" data-k="rr">
+        <div class="vicon"><svg viewBox="0 0 24 24"><path d="M12 4v8M12 12c-1 0-2-1-3-1-3 0-5 4-5 7 0 1.5 1 2 2 2 3 0 6-2 6-6M12 12c1 0 2-1 3-1 3 0 5 4 5 7 0 1.5-1 2-2 2-3 0-6-2-6-6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div>
+        <div class="vdata"><label>RESPIRATORY RATE</label><div class="vval"><b>16</b><em class="d flat">— 0</em></div><small>br/min</small></div>
+        <canvas class="wave"></canvas>
+      </div>
+    </div>
+
+    <!-- BODY SCAN COLUMN -->
+    <div class="panel bodyscan" id="pScan">
+      <h3>BODY SCAN<br>IN PROGRESS</h3>
+      <div class="ring">
+        <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" class="rt"/><circle cx="50" cy="50" r="40" class="rv" id="scanArc"/></svg>
+        <span id="scanPct">87%</span>
+      </div>
+      <ul class="scanlist" id="scanList">
+        <li data-s="skeletal">Skeletal<b>OK</b></li>
+        <li data-s="muscular">Muscular<b>OK</b></li>
+        <li data-s="cardiovascular">Cardiovascular<b>OK</b></li>
+        <li data-s="respiratory">Respiratory<b>OK</b></li>
+        <li data-s="neurological">Neurological<b>OK</b></li>
+        <li data-s="digestive">Digestive<b>OK</b></li>
+      </ul>
+    </div>
+    <div class="panel brainbox"><div class="mini3d" data-view="brain"></div></div>
+    <div class="panel neural">
+      <h4>NEURAL ACTIVITY</h4>
+      <canvas class="wave" id="neuralWave"></canvas>
+      <div class="nval" id="neuralVal">92.4%</div>
+    </div>
+
+    <!-- HOLOGRAM -->
+    <div class="holo-zone" id="holoZone">
+      <div class="mode-switch" id="modeSwitch">
+        <button data-mode="astronaut" class="on">ASTRONAUT MODE</button>
+        <button data-mode="scan">SCAN MODE</button>
+      </div>
+      <div class="scenario-pick">
+        <label>HEALTH SCENARIO <span class="sim-tag">SIMULATED</span></label>
+        <select id="scenarioSel"></select>
+      </div>
+      <div class="scan-hint" id="scanHint">DRAG TO ROTATE · M = TOGGLE MODE · 1–6 = SCENARIO</div>
+    </div>
+
+    <!-- ENVIRONMENTAL -->
+    <div class="panel env" id="pEnv">
+      <h2>ENVIRONMENTAL CONDITIONS</h2>
+      <div class="env-grid">
+        <div class="etile" data-e="o2"><i class="eic">O<sub>2</sub></i><b>21.0%</b><em class="d up">▲ +0.1</em></div>
+        <div class="etile" data-e="co2"><i class="eic">CO<sub>2</sub></i><b>0.30%</b><em class="d down">▼ -0.01</em></div>
+        <div class="etile" data-e="press"><i class="eic">PRESSURE</i><b>14.7 <small>psi</small></b><em class="d flat">— 0.0</em></div>
+        <div class="etile" data-e="temp"><i class="eic">CABIN TEMP</i><b>22.4 <small>°C</small></b><em class="d down">▼ -0.02</em></div>
+        <div class="etile" data-e="rad"><i class="eic">RADIATION</i><b>0.03 <small>mSv/h</small></b><em class="d down">▼ -0.002</em></div>
+      </div>
+      <div class="mini3d earthview" data-view="earth"></div>
+    </div>
+
+    <!-- GENETIC -->
+    <div class="panel genetic" id="pGen">
+      <h2>GENETIC OVERVIEW</h2>
+      <div class="mini3d dnaview" data-view="dna"></div>
+      <div class="gen-metrics">
+        <div class="gm"><label>Expression Stability <b id="gExpr">98.1%</b></label><small>BASELINE</small><div class="bar"><i id="gExprBar" style="width:98%"></i></div></div>
+        <div class="gm"><label>Mutation Risk <b id="gMut">Low</b></label><div class="bar"><i id="gMutBar" style="width:22%"></i></div></div>
+        <div class="gm"><label>Biomarker Activity</label><canvas class="wave" id="bioWave"></canvas></div>
+      </div>
+    </div>
+
+    <!-- MISSION OVERVIEW -->
+    <div class="panel missionov">
+      <h2>MISSION OVERVIEW</h2>
+      <div class="mini3d issview" data-view="iss"></div>
+      <div class="mo-data">
+        <label>Mission Elapsed</label>
+        <b id="mElapsed">124:32:17</b>
+        <label>Next Checkpoint</label>
+        <b class="small" id="mNext">+ 02:15:43</b>
+      </div>
+    </div>
+
+    <!-- SYSTEMS STATUS -->
+    <div class="panel systems">
+      <h2>SYSTEMS STATUS</h2>
+      <div class="sys-grid" id="sysGrid">
+        <div class="sys" data-sys="life"><div class="sring"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18" stroke="currentColor" stroke-width="2.2"/><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></div><label>Life Support</label><b>Nominal</b></div>
+        <div class="sys" data-sys="thermal"><div class="sring"><svg viewBox="0 0 24 24"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></div><label>Thermal Control</label><b>Nominal</b></div>
+        <div class="sys" data-sys="rad"><div class="sring"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 12l2.5 2.5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></div><label>Radiation Shielding</label><b>Nominal</b></div>
+        <div class="sys" data-sys="comm"><div class="sring"><svg viewBox="0 0 24 24"><path d="M5 19L12 8l7 11M12 8V4M8 4.5a6 6 0 0 1 8 0M9.8 6.5a3.2 3.2 0 0 1 4.4 0" fill="none" stroke="currentColor" stroke-width="1.7"/></svg></div><label>Communication</label><b>Nominal</b></div>
+      </div>
+    </div>
+
+    <!-- AI INSIGHTS -->
+    <div class="panel ai">
+      <h2>AI INSIGHTS</h2>
+      <div class="mini3d aiview" data-view="aibrain"></div>
+      <div class="ai-txt" id="aiText">
+        <p>All systems nominal.</p>
+        <p>No immediate health risks detected. Continue current mission profile.</p>
+      </div>
+      <button class="ai-btn" id="aiBtn">View Details →</button>
+    </div>
+  </section>
+
+  <!-- ================= BIOMETRICS ================= -->
+  <section class="view" id="view-biometrics">
+    <div class="panel big3d"><h2>RESPIRATORY SYSTEM — 3D</h2><div class="mini3d" data-view="lungs"></div>
+      <div class="legend" id="lungLegend">Lung tissue status: <b>NOMINAL</b></div></div>
+    <div class="panel charts">
+      <h2>VITAL TRENDS · LAST 60 s <span class="sim-tag">SIMULATED</span></h2>
+      <div class="trend" data-k="hr"><label>Heart rate <b></b></label><canvas></canvas></div>
+      <div class="trend" data-k="spo2"><label>SpO₂ <b></b></label><canvas></canvas></div>
+      <div class="trend" data-k="temp"><label>Core temperature <b></b></label><canvas></canvas></div>
+      <div class="trend" data-k="sys"><label>Systolic pressure <b></b></label><canvas></canvas></div>
+      <div class="trend" data-k="rr"><label>Respiratory rate <b></b></label><canvas></canvas></div>
+    </div>
+    <div class="panel ranges">
+      <h2>REFERENCE RANGES</h2>
+      <table id="rangeTable"></table>
+      <p class="note">Ranges are general adult clinical references used to colour the readings. Readings on this demo are simulated, not from a real crew member.</p>
+    </div>
+  </section>
+
+  <!-- ================= GENETICS ================= -->
+  <section class="view" id="view-genetics">
+    <div class="panel big3d"><h2>GENOMIC INTEGRITY MONITOR</h2><div class="mini3d" data-view="dnabig"></div></div>
+    <div class="panel genlist">
+      <h2>MARKERS UNDER WATCH <span class="sim-tag">SIMULATED</span></h2>
+      <div id="geneList"></div>
+      <p class="note">Marker categories follow themes studied in NASA's Twins Study (telomere length, gene expression shifts, DNA damage response). The values shown are simulated for this demo.</p>
+    </div>
+  </section>
+
+  <!-- ================= SIMULATIONS ================= -->
+  <section class="view" id="view-simulations">
+    <div class="panel simcards">
+      <h2>HEALTH SCENARIOS <span class="sim-tag">SIMULATED</span></h2>
+      <div class="cards" id="simCards"></div>
+    </div>
+    <div class="panel big3d"><h2>HABITAT VIEW — ISS INTERIOR (PHOTOGRAMMETRY)</h2><div class="mini3d" data-view="issbig"></div></div>
+  </section>
+
+  <!-- ================= MISSION ================= -->
+  <section class="view" id="view-mission">
+    <div class="panel big3d wide"><h2>TRANSIT: EARTH → MARS</h2><div class="mini3d" data-view="transit"></div>
+      <div class="transit-hud"><div><label>Mission day</label><b id="tDay">5</b></div><div><label>Phase</label><b>Low Earth Orbit ops</b></div><div><label>Crew</label><b>4</b></div></div>
+    </div>
+    <div class="panel timeline">
+      <h2>MISSION TIMELINE</h2>
+      <ol id="timeline">
+        <li class="done"><b>Launch</b><span>T+0</span></li>
+        <li class="done"><b>Orbit insertion</b><span>T+00:09</span></li>
+        <li class="now"><b>Health baseline scan</b><span>T+124:32</span></li>
+        <li><b>Next checkpoint · crew medical</b><span>T+126:48</span></li>
+        <li><b>EVA readiness review</b><span>T+150:00</span></li>
+      </ol>
+    </div>
+  </section>
+
+</div>
+</div>
+
+<!-- AI details modal -->
+<div id="modal" class="modal hidden">
+  <div class="modal-box panel">
+    <button class="modal-x" id="modalX">✕</button>
+    <h2 id="mdTitle">AI INSIGHTS — DETAILS</h2>
+    <div id="mdBody"></div>
+    <p class="note">Rule-based demo engine running on simulated readings. Not a medical device.</p>
+  </div>
+</div>
+
+<script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

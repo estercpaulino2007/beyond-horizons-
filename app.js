@@ -1,0 +1,989 @@
+// Beyond Horizons — Space Health Monitoring System (demo front-end)
+// Vanilla JS + three.js. All physiological readings are SIMULATED for demonstration.
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+/* ============================================================
+   CONFIG
+   ============================================================ */
+const CONFIG = {
+  mission: 'STS-1187',
+  astronaut: 'J. KELLER',
+  // The NASA insignia ("meatball") is restricted for Space Apps projects.
+  // Keep false for the submission; set true only for private mock-ups.
+  useNasaInsignia: false,
+  startElapsed: 124 * 3600 + 32 * 60 + 17,
+  startNextCheckpoint: 2 * 3600 + 15 * 60 + 43,
+  bloom: true,
+  // anatomy placement inside the astronaut (astronaut-space units)
+  anat: { scale: 1.62, x: 0, y: 0.09, z: 0.0 },
+};
+const qs = new URLSearchParams(location.search);
+if (qs.has('nasa')) CONFIG.useNasaInsignia = qs.get('nasa') !== '0';
+if (qs.get('bloom') === '0') CONFIG.bloom = false;
+
+/* ============================================================
+   REFERENCE RANGES + SCENARIOS (simulated)
+   ============================================================ */
+const RANGES = {
+  hr:   { label: 'Heart rate', unit: 'bpm',   ok: [60, 100], warn: [50, 120] },
+  spo2: { label: 'SpO₂',       unit: '%',     ok: [95, 100], warn: [90, 100] },
+  temp: { label: 'Core temp',  unit: '°C',    ok: [36.1, 37.5], warn: [35.5, 38.5] },
+  sys:  { label: 'Systolic BP',unit: 'mmHg',  ok: [90, 130], warn: [85, 145] },
+  rr:   { label: 'Resp. rate', unit: 'br/min',ok: [12, 20], warn: [10, 24] },
+};
+const ENV_RANGES = {
+  o2:    { ok: [19.5, 23.5], warn: [18.5, 24] },
+  co2:   { ok: [0, 0.40], warn: [0, 0.53] },
+  press: { ok: [14.2, 15.2], warn: [13.9, 15.4] },
+  temp:  { ok: [18.3, 26.7], warn: [17, 28] },
+  rad:   { ok: [0, 0.05], warn: [0, 0.5] },
+};
+function classify(v, r) {
+  if (v >= r.ok[0] && v <= r.ok[1]) return 'ok';
+  if (v >= r.warn[0] && v <= r.warn[1]) return 'warn';
+  return 'crit';
+}
+
+const BASE_V = { hr: 72, spo2: 98, temp: 36.6, sys: 118, dia: 76, rr: 16 };
+const BASE_E = { o2: 21.0, co2: 0.30, press: 14.7, temp: 22.4, rad: 0.03 };
+const ALL_OK = { skeletal: 'ok', muscular: 'ok', cardiovascular: 'ok', respiratory: 'ok', neurological: 'ok', digestive: 'ok' };
+const SYS_OK = { life: 'ok', thermal: 'ok', rad: 'ok', comm: 'ok' };
+
+const SCENARIOS = [
+  { id: 'nominal', name: 'Nominal', level: 'ok',
+    desc: 'Baseline crew health during routine Low Earth Orbit operations.',
+    v: {}, e: {}, organs: {}, sys: {}, gen: { expr: 98.1, mut: ['Low', 22] }, neural: 92.4,
+    ai: ['All systems nominal.', 'No immediate health risks detected. Continue current mission profile.'],
+    recs: ['Keep the daily exercise block (≈2 h) on schedule.', 'Next routine medical check at the upcoming checkpoint.'] },
+  { id: 'hypoxia', name: 'Hypoxia — cabin O₂ drop', level: 'crit',
+    desc: 'Oxygen generation fault lowers cabin O₂; blood oxygen saturation falls.',
+    v: { hr: 108, spo2: 87, temp: 36.8, sys: 128, dia: 82, rr: 26 }, e: { o2: 17.6, co2: 0.45, press: 14.4 },
+    organs: { respiratory: 'crit', neurological: 'warn', cardiovascular: 'warn' }, sys: { life: 'crit' },
+    gen: { expr: 96.9, mut: ['Low', 24] }, neural: 78.2,
+    ai: ['<span class="c">SpO₂ 87% — hypoxemia detected.</span>', 'Cabin O₂ below safe range. Don O₂ mask and check the oxygen generation system.'],
+    recs: ['Put on emergency O₂ mask immediately.', 'Verify the Oxygen Generation Assembly and cabin pressure.', 'Watch for confusion or headache (early neurological signs).'] },
+  { id: 'arrhythmia', name: 'Cardiac arrhythmia', level: 'crit',
+    desc: 'Irregular, fast heartbeat detected on the ECG trace.',
+    v: { hr: 142, spo2: 95, temp: 36.9, sys: 146, dia: 94, rr: 21 }, irregular: true,
+    organs: { cardiovascular: 'crit' }, sys: {}, gen: { expr: 97.4, mut: ['Low', 23] }, neural: 88.0,
+    ai: ['<span class="c">Irregular R-R intervals · HR 142 bpm.</span>', 'Pattern consistent with atrial fibrillation. Stop exertion and contact the flight surgeon.'],
+    recs: ['Stop all physical exertion.', 'Record a 12-lead ECG and downlink to the flight surgeon.', 'Prepare the medical kit per the cardiac procedure.'] },
+  { id: 'radiation', name: 'Solar particle event', level: 'warn',
+    desc: 'A solar storm raises the radiation dose rate inside the habitat.',
+    v: { hr: 84, temp: 37.0, sys: 122, dia: 80, rr: 17 }, e: { rad: 1.20 },
+    organs: { skeletal: 'warn', digestive: 'warn' }, sys: { rad: 'warn' },
+    gen: { expr: 91.4, mut: ['Elevated', 64] }, neural: 90.1,
+    ai: ['<span class="w">Dose rate 40× above baseline.</span>', 'Move to the shielded storm shelter and log cumulative dose.'],
+    recs: ['Relocate crew to the storm shelter (most shielded module).', 'Track cumulative dose against mission limits.', 'Bone marrow and GI tract are the most radiation-sensitive tissues.'] },
+  { id: 'heat', name: 'Heat stress', level: 'warn',
+    desc: 'Thermal control degraded; core temperature and heart rate rise.',
+    v: { hr: 118, spo2: 97, temp: 38.7, sys: 100, dia: 64, rr: 22 }, e: { temp: 29.5 },
+    organs: { cardiovascular: 'warn', neurological: 'warn' }, sys: { thermal: 'crit' },
+    gen: { expr: 95.8, mut: ['Low', 26] }, neural: 84.6,
+    ai: ['<span class="w">Core temp 38.7 °C with rising HR.</span>', 'Thermal loop degraded. Increase cooling, rehydrate and pause EVA prep.'],
+    recs: ['Increase cabin cooling / switch to the backup thermal loop.', 'Drink ≈500 mL of fluid with electrolytes.', 'Postpone EVA preparation until core temperature normalises.'] },
+  { id: 'bone', name: 'Bone density loss', level: 'warn',
+    desc: 'Long-duration microgravity trend: gradual loss of bone mineral density.',
+    v: { hr: 70 }, organs: { skeletal: 'warn', muscular: 'warn' }, sys: {},
+    gen: { expr: 97.2, mut: ['Low', 25] }, neural: 92.0,
+    ai: ['<span class="w">Bone density trend −1.2 %/month.</span>', 'Typical of long-duration flight. Increase resistive exercise.'],
+    recs: ['Increase resistive exercise sessions on the ARED device.', 'Review calcium and vitamin D intake.', 'Schedule a follow-up density estimate.'] },
+];
+function scen() { return SCENARIOS[state.scen]; }
+
+/* ============================================================
+   STATE
+   ============================================================ */
+const state = {
+  mode: 'astronaut', scen: 0, t0: performance.now(),
+  v: { ...BASE_V }, e: { ...BASE_E },
+  hist: { hr: [], spo2: [], temp: [], sys: [], rr: [] },
+  scanProg: 0.87, scanFast: false, neural: 92.4,
+};
+
+/* ============================================================
+   LAYOUT — scale the 1920×1080 HUD to the window
+   ============================================================ */
+const app = document.getElementById('app');
+let S = 1;
+function layout() {
+  S = Math.min(innerWidth / 1920, innerHeight / 1080);
+  const ox = (innerWidth - 1920 * S) / 2, oy = (innerHeight - 1080 * S) / 2;
+  app.style.transform = `translate(${ox}px,${oy}px) scale(${S})`;
+  sizeHolo(); sizeMini(); sizeWaves();
+}
+
+/* ============================================================
+   LOADING
+   ============================================================ */
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+const MODEL_LIST = ['astronaut', 'organs', 'vessels', 'brain', 'brain-holo', 'dna', 'earth', 'iss', 'lungs', 'mars', 'station'];
+if (CONFIG.useNasaInsignia) MODEL_LIST.push('nasa');
+const progress = {};
+const models = {};
+function setLoad() {
+  const vals = MODEL_LIST.map(n => progress[n] || 0);
+  const p = vals.reduce((a, b) => a + b, 0) / MODEL_LIST.length;
+  document.getElementById('ldBar').style.width = (p * 100).toFixed(0) + '%';
+  document.getElementById('ldPct').textContent = (p * 100).toFixed(0) + '%';
+}
+function load(name) {
+  return new Promise((res) => {
+    loader.load(`models/${name}.glb`, g => { progress[name] = 1; setLoad(); models[name] = g; res(g); },
+      x => { if (x.total) { progress[name] = x.loaded / x.total * 0.95; setLoad(); } },
+      err => { console.warn('model failed', name, err); progress[name] = 1; setLoad(); res(null); });
+  });
+}
+
+/* ============================================================
+   HOLOGRAM MATERIAL (fresnel + scan line + reveal), works with skinning
+   ============================================================ */
+const holoTime = { value: 0 };
+const scanY = { value: -10 };      // world-space Y of the scan line
+const revealY = { value: 100 };    // fragments above this world Y are hidden
+function makeHolo(o = {}) {
+  const m = new THREE.MeshLambertMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    side: o.side ?? THREE.FrontSide,
+  });
+  const u = {
+    uColor: { value: new THREE.Color(o.color ?? 0x39c6ff) },
+    uBase: { value: o.base ?? 0.06 }, uRim: { value: o.rim ?? 1.0 }, uPow: { value: o.pow ?? 2.2 },
+    uOpacity: { value: o.opacity ?? 1.0 }, uStripe: { value: o.stripe ?? 0.0 },
+    uPulse: { value: 0 }, uPulseSpeed: { value: 4.0 },
+    uScanW: { value: o.scanW ?? 0.06 }, uScanGain: { value: o.scanGain ?? 1.0 },
+    uUseReveal: { value: o.reveal ? 1 : 0 },
+    uTime: holoTime, uScanY: scanY, uReveal: revealY,
+  };
+  m.userData.u = u;
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, u);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vHoloY;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvHoloY = (modelMatrix * vec4(transformed,1.0)).y;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying float vHoloY; uniform vec3 uColor; uniform float uBase,uRim,uPow,uOpacity,uStripe,uPulse,uPulseSpeed,uScanW,uScanGain,uUseReveal,uTime,uScanY,uReveal;`)
+      .replace('#include <dithering_fragment>', `
+        if (uUseReveal > 0.5 && vHoloY > uReveal) discard;
+        float fr = 1.0 - abs(dot(normalize(normal), normalize(vViewPosition)));
+        fr = pow(clamp(fr,0.0,1.0), uPow);
+        float s = uBase + fr*uRim;
+        float stripe = uStripe > 0.0 ? 0.78 + 0.22*step(0.5, fract(vHoloY*uStripe - uTime*0.6)) : 1.0;
+        float scan = smoothstep(uScanW, 0.0, abs(vHoloY-uScanY)) * uScanGain;
+        float pulse = 1.0 + uPulse*(0.5+0.5*sin(uTime*uPulseSpeed));
+        vec3 col = uColor * s * stripe * pulse + vec3(0.55,0.9,1.0)*scan;
+        gl_FragColor = vec4(col, clamp((s*uOpacity + scan*0.7)*pulse, 0.0, 1.0));`);
+  };
+  m.customProgramCacheKey = () => 'holo-v1';
+  return m;
+}
+
+/* ============================================================
+   MAIN HOLOGRAM SCENE
+   ============================================================ */
+const holoCanvas = document.getElementById('holoCanvas');
+const holo = {};
+function initHolo() {
+  const r = new THREE.WebGLRenderer({ canvas: holoCanvas, antialias: true, powerPreference: 'high-performance' });
+  r.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+  r.setClearColor(0x03112b, 1);
+  r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.05;
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x03112b, 0.02);
+  const cam = new THREE.PerspectiveCamera(24, 1, 0.1, 400);
+  cam.position.set(0, 1.62, 8.6);
+  const ctl = new OrbitControls(cam, holoCanvas);
+  ctl.target.set(0, 1.52, 0); ctl.enableZoom = false; ctl.enablePan = false;
+  ctl.minPolarAngle = Math.PI * 0.38; ctl.maxPolarAngle = Math.PI * 0.56; ctl.enableDamping = true;
+  ctl.rotateSpeed = 0.6;
+  ctl.update();
+
+  scene.add(new THREE.HemisphereLight(0x9fd0ff, 0x0a1830, 1.3));
+  const key = new THREE.DirectionalLight(0xffffff, 2.2); key.position.set(2.5, 5, 6); scene.add(key);
+  const rim1 = new THREE.DirectionalLight(0x39c6ff, 3.0); rim1.position.set(-4, 3, -4); scene.add(rim1);
+  const rim2 = new THREE.DirectionalLight(0x5aa8ff, 2.0); rim2.position.set(4, 2, -3); scene.add(rim2);
+  const fill = new THREE.PointLight(0x2f8fff, 6, 8); fill.position.set(0, 0.3, 2); scene.add(fill);
+
+  // platform + light column
+  const plat = new THREE.Group(); scene.add(plat);
+  const addRing = (r0, r1, op, seg = 128, dash = 0) => {
+    let g;
+    if (dash) {
+      g = new THREE.BufferGeometry();
+      const parts = [];
+      for (let i = 0; i < dash; i++) {
+        const a0 = i / dash * Math.PI * 2, a1 = a0 + Math.PI * 2 / dash * 0.6;
+        const rg = new THREE.RingGeometry(r0, r1, 8, 1, a0, a1 - a0); parts.push(rg);
+      }
+      g = mergeGeoms(parts);
+    } else g = new THREE.RingGeometry(r0, r1, seg);
+    const m = new THREE.MeshBasicMaterial({ color: 0x39c6ff, transparent: true, opacity: op, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(g, m); mesh.rotation.x = -Math.PI / 2; plat.add(mesh); return mesh;
+  };
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(1.25, 96), new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uT: holoTime },
+    vertexShader: 'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader: `varying vec2 vUv; uniform float uT; void main(){ float d=length(vUv-0.5)*2.0;
+      float g = smoothstep(1.0,0.0,d)*0.2 + smoothstep(0.04,0.0,abs(fract(d*6.0-uT*0.4)-0.5)-0.44)*0.25*(1.0-d);
+      gl_FragColor = vec4(vec3(0.15,0.6,1.0)*g, g); }`,
+  }));
+  disc.rotation.x = -Math.PI / 2; disc.position.y = 0.005; plat.add(disc);
+  addRing(1.18, 1.24, 0.9); addRing(1.32, 1.35, 0.6); addRing(0.9, 0.92, 0.5);
+  holo.spinA = addRing(1.42, 1.5, 0.55, 0, 36); holo.spinB = addRing(1.02, 1.08, 0.45, 0, 12);
+  addRing(1.62, 1.635, 0.35);
+  // light column (open cylinder, vertical fade)
+  const col = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.25, 3.9, 96, 1, true), new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    uniforms: { uT: holoTime },
+    vertexShader: 'varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader: `varying vec2 vUv; uniform float uT; void main(){ float a = pow(1.0-vUv.y, 2.4)*0.16;
+      a += 0.05*step(0.92, fract(vUv.y*28.0 + uT*0.25))*(1.0-vUv.y);
+      gl_FragColor = vec4(vec3(0.2,0.65,1.0)*a, a); }`,
+  }));
+  col.position.y = 1.95; plat.add(col);
+  // floating particles
+  const N = 500, pg = new THREE.BufferGeometry(), pp = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { const a = Math.random() * 6.283, rr = Math.random() * 1.3; pp.set([Math.cos(a) * rr, Math.random() * 3.6, Math.sin(a) * rr], i * 3); }
+  pg.setAttribute('position', new THREE.BufferAttribute(pp, 3));
+  holo.parts = new THREE.Points(pg, new THREE.PointsMaterial({ color: 0x7fe0ff, size: 0.025, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }));
+  scene.add(holo.parts);
+  // scan plane
+  const sp = new THREE.Mesh(new THREE.RingGeometry(0.02, 1.25, 96), new THREE.MeshBasicMaterial({ color: 0x5fd8ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+  sp.rotation.x = -Math.PI / 2; scene.add(sp); holo.scanPlane = sp;
+
+  let composer = null;
+  if (CONFIG.bloom) {
+    composer = new EffectComposer(r);
+    composer.addPass(new RenderPass(scene, cam));
+    holo.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.85, 0.55, 0.12);
+    composer.addPass(holo.bloom);
+    composer.addPass(new OutputPass());
+  }
+  Object.assign(holo, { r, scene, cam, ctl, composer, plat });
+}
+function mergeGeoms(list) {
+  // tiny merge for non-indexed copies
+  const pos = []; const uv = [];
+  for (const g of list) { const n = g.index ? g.toNonIndexed() : g; pos.push(...n.attributes.position.array); uv.push(...n.attributes.uv.array); }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  return out;
+}
+function sizeHolo() {
+  if (!holo.r) return;
+  const z = document.getElementById('holoZone').getBoundingClientRect();
+  const padX = 170 * S, padB = 20 * S;
+  const x = z.left - padX, y = z.top, w = z.width + padX * 2, h = z.height + padB;
+  Object.assign(holoCanvas.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+  holo.r.setSize(w, h, false);
+  holo.composer?.setSize(w, h);
+  holo.cam.aspect = w / h; holo.cam.updateProjectionMatrix();
+  holoCanvas.style.webkitMaskImage = holoCanvas.style.maskImage =
+    'radial-gradient(ellipse 50% 56% at 50% 52%, #000 62%, transparent 100%)';
+}
+
+/* ---------- astronaut + anatomy ---------- */
+const SYS_COLORS = {
+  skeletal: 0x3fc0ff, cartilage: 0x2a8fd0, lungs: 0xff3a55, bronchi: 0xff7a95,
+  heart: 0xff1f35, artery: 0xff3048, vein: 0x3c7dff, organ: 0xff7a3a, digestive: 0xffa040,
+  gland: 0xffd25a, neuro: 0x5cc8ff,
+};
+const STATUS_COLOR = { warn: new THREE.Color(0xffb020), crit: new THREE.Color(0xff2236) };
+const anatMats = {};   // key -> holo material
+const anatDefaults = {};
+function anatMat(key, o) {
+  if (!anatMats[key]) { anatMats[key] = makeHolo({ reveal: true, color: SYS_COLORS[key], ...o }); anatDefaults[key] = { ...o, color: SYS_COLORS[key] }; }
+  return anatMats[key];
+}
+// which 3D materials belong to each body-scan system
+const SYSTEM_TO_MATS = {
+  skeletal: ['skeletal', 'cartilage'], muscular: [], cardiovascular: ['heart', 'artery', 'vein'],
+  respiratory: ['lungs', 'bronchi'], neurological: ['neuro'], digestive: ['organ', 'digestive', 'gland'],
+};
+const MARKERS = [
+  { sys: 'respiratory', p: [-0.075, 1.30, 0.03], label: 'LUNGS', side: 'l' },
+  { sys: 'cardiovascular', p: [0.02, 1.27, 0.07], label: 'HEART' },
+  { sys: 'neurological', p: [0.0, 1.64, 0.0], label: 'BRAIN' },
+  { sys: 'digestive', p: [-0.03, 1.02, 0.07], label: 'GI TRACT', side: 'l' },
+  { sys: 'skeletal', p: [0.11, 0.62, 0.0], label: 'BONE' },
+  { sys: 'muscular', p: [-0.14, 0.7, 0.03], label: 'MUSCLE', side: 'l' },
+];
+
+function setupAstronaut() {
+  const g = models.astronaut; if (!g) return;
+  const root = g.scene; holo.scene.add(root); holo.astro = root;
+  holo.mixer = new THREE.AnimationMixer(root);
+  const clip = n => g.animations.find(a => a.name === n);
+  holo.actions = {};
+  for (const a of g.animations) holo.actions[a.name] = holo.mixer.clipAction(a);
+  holo.actions.idle?.play();
+  holo.mixer.update(0.01);
+
+  holo.suitMeshes = []; holo.holoMeshes = [];
+  const suitHolo = makeHolo({ color: 0x39c6ff, base: 0.035, rim: 1.25, pow: 2.0, stripe: 70, scanGain: 1.2 });
+  holo.suitHoloMat = suitHolo;
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    o.frustumCulled = false;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach(m => { m.transparent = false; m.userData.baseOpacity = 1; });
+    holo.suitMeshes.push(o);
+  });
+  for (const o of holo.suitMeshes) {
+    const c = o.clone(); c.material = suitHolo; c.visible = false; c.renderOrder = 2;
+    if (o.isSkinnedMesh) c.bind(o.skeleton, o.bindMatrix);
+    o.parent.add(c); holo.holoMeshes.push(c);
+  }
+
+  // anatomy group, built in astronaut space then attached to the hip bone
+  const anat = new THREE.Group(); anat.name = 'anatomy';
+  const A = CONFIG.anat; anat.scale.setScalar(A.scale); anat.position.set(A.x, A.y, A.z);
+  holo.anat = anat;
+  const tag = (mesh, key, o) => { mesh.material = anatMat(key, o); mesh.renderOrder = 3; mesh.frustumCulled = false; };
+  if (models.organs) {
+    models.organs.scene.traverse(o => {
+      if (!o.isMesh) return;
+      const n = (o.material?.name || '').toLowerCase();
+      if (n.startsWith('lung')) tag(o, 'lungs', { base: 0.32, rim: 1.4, pow: 1.6 });
+      else if (n.startsWith('bronchi') || n.startsWith('mucosa')) tag(o, 'bronchi', { base: 0.18, rim: 0.9 });
+      else if (n.startsWith('organ')) tag(o, 'organ', { base: 0.22, rim: 1.0 });
+      else if (n.startsWith('intestine') || n.startsWith('peritoneum') || n.startsWith('ligament') || n.startsWith('ductus') || n.startsWith('muscles')) tag(o, 'digestive', { base: 0.10, rim: 0.7 });
+      else if (n.startsWith('gland')) tag(o, 'gland', { base: 0.2, rim: 0.9 });
+      else if (n.startsWith('cartilage')) tag(o, 'cartilage', { base: 0.02, rim: 0.5 });
+      else if (n.startsWith('teeth') || n.startsWith('suture') || n.startsWith('bone')) tag(o, 'skeletal', { base: 0.015, rim: 0.75, pow: 2.4 });
+      else o.visible = false;
+    });
+    anat.add(models.organs.scene);
+  }
+  if (models.vessels) {
+    models.vessels.scene.traverse(o => {
+      if (!o.isMesh) return;
+      const n = (o.material?.name || '').toLowerCase();
+      if (n.startsWith('artery')) tag(o, 'artery', { base: 0.16, rim: 0.55 });
+      else if (n.startsWith('vein')) tag(o, 'vein', { base: 0.14, rim: 0.5 });
+      else if (n.startsWith('muscles')) tag(o, 'heart', { base: 0.55, rim: 1.4, pow: 1.4 });
+      else o.visible = false;
+    });
+    anat.add(models.vessels.scene);
+  }
+  if (models.brain) {
+    const b = models.brain.scene.clone();
+    b.traverse(o => { if (o.isMesh) tag(o, 'neuro', { base: 0.10, rim: 1.2, pow: 1.8 }); });
+    const bb = new THREE.Box3().setFromObject(b), sz = bb.getSize(new THREE.Vector3()), ce = bb.getCenter(new THREE.Vector3());
+    const s = 0.142 / sz.x; b.scale.setScalar(s); b.position.set(-ce.x * s, 1.628 - ce.y * s, -0.004 - ce.z * s);
+    anat.add(b);
+  }
+  anat.visible = false;
+  root.add(anat);
+  // attach to the hips so the anatomy follows the idle sway
+  root.updateMatrixWorld(true);
+  let hip = null;
+  root.traverse(o => { if (!hip && o.isBone && /hip|pelvis/i.test(o.name)) hip = o; });
+  if (!hip) root.traverse(o => { if (!hip && o.isBone && /spine/i.test(o.name)) hip = o; });
+  holo.hipName = hip?.name;
+  if (hip) hip.attach(anat);
+
+  // marker anchors
+  const mkRoot = document.getElementById('markers');
+  holo.markers = MARKERS.map(m => {
+    const el = document.createElement('div'); el.className = 'mk';
+    el.innerHTML = `<span class="dot"></span><span class="lbl">${m.label}</span>`; mkRoot.appendChild(el);
+    const anchor = new THREE.Object3D(); anchor.position.set(...m.p); anat.add(anchor);
+    return { ...m, el, anchor };
+  });
+}
+
+/* ---------- mode switching ---------- */
+const tween = { k: 0, target: 0 }; // 0 = astronaut, 1 = scan
+function setMode(mode) {
+  state.mode = mode;
+  document.querySelectorAll('#modeSwitch button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  tween.target = mode === 'scan' ? 1 : 0;
+  if (mode === 'scan') { state.scanProg = 0; state.scanFast = true; state.scanStart = performance.now(); }
+  else {
+    state.scanFast = false;
+    const w = holo.actions?.wave, idle = holo.actions?.idle;
+    if (w && idle) { w.reset().setLoop(THREE.LoopOnce, 1); w.clampWhenFinished = false; w.fadeIn(0.4).play(); idle.fadeOut(0.4);
+      setTimeout(() => { idle.reset().fadeIn(0.6).play(); w.fadeOut(0.6); }, (w.getClip().duration - 0.6) * 1000); }
+  }
+  updateScanList();
+}
+function updateModeVisuals(dt) {
+  if (!holo.astro) return;
+  tween.k += Math.sign(tween.target - tween.k) * Math.min(Math.abs(tween.target - tween.k), dt / 1.1);
+  const k = tween.k;
+  const suitOp = 1 - THREE.MathUtils.smoothstep(k, 0, 0.6);
+  for (const o of holo.suitMeshes) {
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    o.visible = suitOp > 0.01;
+    mats.forEach(m => { const tr = suitOp < 0.999; if (m.transparent !== tr) { m.transparent = tr; m.needsUpdate = true; } m.opacity = suitOp; m.depthWrite = !tr; });
+  }
+  const hk = THREE.MathUtils.smoothstep(k, 0.15, 1);
+  for (const c of holo.holoMeshes) c.visible = hk > 0.01;
+  holo.suitHoloMat.userData.u.uOpacity.value = hk * 0.9;
+  holo.anat.visible = k > 0.05;
+
+  const H = holo.anatTop ?? 3.0;
+  if (state.scanFast) {
+    const t = (performance.now() - state.scanStart) / 3200;
+    state.scanProg = Math.min(1, t);
+    scanY.value = THREE.MathUtils.lerp(-0.05, H + 0.15, state.scanProg);
+    revealY.value = scanY.value;
+    if (t >= 1) { state.scanFast = false; }
+  } else if (state.mode === 'scan') {
+    revealY.value = 100;
+    scanY.value = (Math.sin(holoTime.value * 0.9) * 0.5 + 0.5) * (H + 0.1);
+  } else {
+    revealY.value = 100; scanY.value = -10;
+  }
+  holo.scanPlane.position.y = scanY.value;
+  holo.scanPlane.material.opacity = (state.mode === 'scan' && scanY.value > -1) ? 0.05 : 0;
+  if (holo.bloom) { holo.bloom.strength = THREE.MathUtils.lerp(0.32, 0.55, k); holo.bloom.threshold = THREE.MathUtils.lerp(0.92, 0.6, k); holo.bloom.radius = 0.5; }
+  updateScanList();
+}
+
+/* ---------- health highlighting on the 3D anatomy ---------- */
+function applyOrganStatus() {
+  const st = { ...ALL_OK, ...scen().organs };
+  for (const key of Object.keys(anatMats)) {
+    const u = anatMats[key].userData.u, d = anatDefaults[key];
+    u.uColor.value.set(d.color); u.uPulse.value = 0; u.uBase.value = d.base ?? 0.06; u.uRim.value = d.rim ?? 1;
+  }
+  const anyBad = Object.values(st).some(x => x !== 'ok');
+  if (anyBad) {
+    const bad = new Set(Object.entries(st).filter(([, x]) => x !== 'ok').flatMap(([k]) => SYSTEM_TO_MATS[k] || []));
+    for (const key of Object.keys(anatMats)) if (!bad.has(key)) { const u = anatMats[key].userData.u; u.uBase.value *= 0.4; u.uRim.value *= 0.55; }
+  }
+  for (const [sys, s] of Object.entries(st)) {
+    if (s === 'ok') continue;
+    for (const key of SYSTEM_TO_MATS[sys] || []) {
+      const m = anatMats[key]; if (!m) continue;
+      const u = m.userData.u;
+      u.uColor.value.copy(STATUS_COLOR[s]);
+      const minor = key === 'artery' || key === 'vein' || key === 'cartilage' || key === 'digestive';
+      u.uPulse.value = (s === 'crit' ? 1.4 : 0.7) * (minor ? 0.5 : 1); u.uPulseSpeed.value = s === 'crit' ? 7 : 3.5;
+      if (minor) { u.uBase.value = s === 'crit' ? 0.2 : 0.12; u.uRim.value = 0.6; }
+      else { u.uBase.value = s === 'crit' ? 0.5 : 0.3; u.uRim.value = 1.4; }
+    }
+  }
+  // suit tint in scan mode follows the overall status
+  const lvl = overall();
+  holo.suitHoloMat?.userData.u.uColor.value.set(lvl === 'crit' ? 0x5cb8ff : 0x39c6ff);
+}
+function overall() {
+  const st = { ...ALL_OK, ...scen().organs };
+  const vals = Object.values(st).concat(Object.entries(vitalStatus()).map(([, s]) => s));
+  return vals.includes('crit') ? 'crit' : vals.includes('warn') ? 'warn' : 'ok';
+}
+const _v = new THREE.Vector3();
+function updateMarkers() {
+  if (!holo.markers) return;
+  const st = { ...ALL_OK, ...scen().organs };
+  const rect = holoCanvas.getBoundingClientRect();
+  const showAny = state.mode === 'scan' && !state.scanFast && document.getElementById('view-overview').classList.contains('active');
+  for (const m of holo.markers) {
+    const s = st[m.sys];
+    const on = showAny && s !== 'ok';
+    m.el.className = 'mk ' + (m.side || 'r') + ' ' + (on ? 'show ' + s : '');
+    if (!on) continue;
+    m.anchor.getWorldPosition(_v); _v.project(holo.cam);
+    m.el.style.left = (rect.left + (_v.x * 0.5 + 0.5) * rect.width) + 'px';
+    m.el.style.top = (rect.top + (-_v.y * 0.5 + 0.5) * rect.height) + 'px';
+  }
+}
+
+/* ============================================================
+   MINI 3D VIEWS (one renderer, scissored into panel slots)
+   ============================================================ */
+const miniCanvas = document.getElementById('miniCanvas');
+const mini = { views: [] };
+function initMini() {
+  const r = new THREE.WebGLRenderer({ canvas: miniCanvas, antialias: true, alpha: true });
+  r.setPixelRatio(Math.min(devicePixelRatio, 1.5)); r.setClearColor(0, 0); r.autoClear = false;
+  r.toneMapping = THREE.ACESFilmicToneMapping;
+  mini.r = r;
+}
+function sizeMini() { mini.r?.setSize(innerWidth, innerHeight, false); }
+function addView(name, scene, cam, update) {
+  const el = document.querySelector(`.mini3d[data-view="${name}"]`);
+  if (!el) return;
+  mini.views.push({ el, scene, cam, update, clipEl: el.closest('.panel') });
+}
+function frameObject(obj, cam, fill = 1.0, dir = new THREE.Vector3(0, 0, 1)) {
+  const b = new THREE.Box3().setFromObject(obj), sz = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+  const R = sz.length() / 2;
+  const d = R / Math.sin(THREE.MathUtils.degToRad(cam.fov / 2)) / fill;
+  cam.position.copy(c).addScaledVector(dir.normalize(), d); cam.lookAt(c);
+  cam.near = d / 100; cam.far = d * 10; cam.updateProjectionMatrix();
+  return { c, R };
+}
+function basicLights(s, color = 0x9fd0ff) {
+  s.add(new THREE.HemisphereLight(color, 0x05101f, 1.6));
+  const d = new THREE.DirectionalLight(0xffffff, 2.2); d.position.set(3, 4, 5); s.add(d);
+  return s;
+}
+function holoClone(src, opts) {
+  const c = src.clone(true); const m = makeHolo(opts);
+  c.traverse(o => { if (o.isMesh) { o.material = m; } });
+  return { obj: c, mat: m };
+}
+function setupMiniViews() {
+  // brain (body-scan column)
+  if (models.brain) {
+    const s = new THREE.Scene(), cam = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
+    const { obj } = holoClone(models.brain.scene, { color: 0x3fb4ff, base: 0.12, rim: 1.3, pow: 1.7, stripe: 30 });
+    const pivot = new THREE.Group(); pivot.add(obj); s.add(pivot);
+    const bb = new THREE.Box3().setFromObject(obj); obj.position.sub(bb.getCenter(new THREE.Vector3()));
+    frameObject(pivot, cam, 1.25, new THREE.Vector3(1, 0.25, 0.2));
+    addView('brain', s, cam, t => { pivot.rotation.y = t * 0.4; });
+  }
+  // earth (environmental panel, cropped like the reference)
+  if (models.earth) {
+    const s = basicLights(new THREE.Scene(), 0xb0d8ff), cam = new THREE.PerspectiveCamera(30, 1, 0.1, 3000);
+    const e = models.earth.scene; s.add(e);
+    const sun = new THREE.DirectionalLight(0xffffff, 3); sun.position.set(-5, 2, 4); s.add(sun);
+    frameObject(e, cam, 1.0, new THREE.Vector3(0.1, 0.25, 1));
+    addView('earth', s, cam, t => { e.rotation.y = t * 0.05; });
+  }
+  // DNA (genetic overview)
+  if (models.dna) {
+    const mk = (big) => {
+      const s = new THREE.Scene(), cam = new THREE.PerspectiveCamera(30, 1, 0.01, 200);
+      const { obj } = holoClone(models.dna.scene, { color: 0x4fc4ff, base: 0.25, rim: 1.2, pow: 1.6 });
+      const tilt = new THREE.Group(), spin = new THREE.Group(); spin.add(obj); tilt.add(spin); s.add(tilt);
+      spin.rotation.x = Math.PI / 2; tilt.rotation.z = big ? -0.25 : -0.62;
+      frameObject(tilt, cam, big ? 1.0 : 1.12);
+      return { s, cam, update: t => { obj.rotation.z = t * 0.6; } };
+    };
+    const a = mk(false); addView('dna', a.s, a.cam, a.update);
+    if (models.dna) { const b = mk(true); addView('dnabig', b.s, b.cam, b.update); }
+  }
+  // AI brain (particle hologram with its own animation)
+  if (models['brain-holo']) {
+    const g = models['brain-holo'];
+    const s = new THREE.Scene(), cam = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
+    s.add(g.scene);
+    const mixer = new THREE.AnimationMixer(g.scene); g.animations.forEach(a => mixer.clipAction(a).play());
+    let mi = 0; g.scene.traverse(o => { if (o.isMesh && o.material) { const c = new THREE.Color(mi++ % 2 ? 0x45b4ff : 0xc0f0ff); o.material = new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 1, blending: THREE.AdditiveBlending, depthWrite: false }); } });
+    frameObject(g.scene, cam, 1.45, new THREE.Vector3(1, 0.15, 0.35));
+    let last = 0;
+    addView('aibrain', s, cam, t => { mixer.update(Math.min(0.05, t - last)); last = t; g.scene.rotation.y = Math.sin(t * 0.3) * 0.4; });
+  }
+  // ISS interior (mission overview + simulations)
+  if (models.iss) {
+    const mk = (big) => {
+      const s = new THREE.Scene(), cam = new THREE.PerspectiveCamera(big ? 70 : 75, 1, 0.02, 200);
+      const iss = big ? models.iss.scene : models.iss.scene.clone();
+      iss.traverse(o => { if (o.isMesh && o.material) { o.material.side = THREE.DoubleSide; o.geometry.computeBoundingBox(); const sz = o.geometry.boundingBox.getSize(new THREE.Vector3()); if (sz.x > 18 || sz.z > 18) o.visible = false; } });
+      s.add(iss); s.add(new THREE.AmbientLight(0xffffff, 1.5));
+      const P = ISS_PATH;
+      return { s, cam, update: t => {
+        const u = (Math.sin(t * (big ? 0.05 : 0.07)) * 0.5 + 0.5);
+        cam.position.set(THREE.MathUtils.lerp(P.a[0], P.b[0], u), P.a[1], THREE.MathUtils.lerp(P.a[2], P.b[2], u));
+        const yaw = Math.sin(t * 0.21) * 0.32 + P.yaw;
+        cam.lookAt(cam.position.x + Math.cos(yaw), cam.position.y - 0.05, cam.position.z + Math.sin(yaw));
+      } };
+    };
+    const a = mk(false); addView('iss', a.s, a.cam, a.update);
+    const b = mk(true); addView('issbig', b.s, b.cam, b.update);
+  }
+  // lungs (biometrics)
+  if (models.lungs) {
+    const s = basicLights(new THREE.Scene(), 0xffd8e0), cam = new THREE.PerspectiveCamera(30, 1, 0.001, 100);
+    const l = models.lungs.scene; const piv = new THREE.Group(); piv.add(l); s.add(piv);
+    const bb = new THREE.Box3().setFromObject(l); l.position.sub(bb.getCenter(new THREE.Vector3()));
+    frameObject(piv, cam, 1.0);
+    const tint = new THREE.Color();
+    l.traverse(o => { if (o.isMesh) o.material = o.material.clone(); });
+    mini.lungs = l;
+    addView('lungs', s, cam, t => {
+      piv.rotation.y = Math.sin(t * 0.4) * 0.6;
+      const rr = state.v.rr, br = 1 + 0.035 * Math.sin(t * Math.PI * 2 * rr / 60);
+      piv.scale.set(br, 1 + (br - 1) * 0.6, br);
+      const stv = { ...ALL_OK, ...scen().organs }.respiratory;
+      tint.set(stv === 'crit' ? 0xff2236 : stv === 'warn' ? 0xffb020 : 0x000000);
+      const k = stv === 'ok' ? 0 : (0.35 + 0.25 * Math.sin(t * 6));
+      l.traverse(o => { if (o.isMesh && o.material.emissive) { o.material.emissive.copy(tint).multiplyScalar(k); } });
+    });
+  }
+  // transit Earth → Mars
+  if (models.mars && models.earth) {
+    const s = basicLights(new THREE.Scene(), 0xffffff), cam = new THREE.PerspectiveCamera(35, 1, 0.1, 5000);
+    const sun = new THREE.DirectionalLight(0xffffff, 3); sun.position.set(0, 3, 10); s.add(sun);
+    const earth = models.earth.scene.clone(); const eb = new THREE.Box3().setFromObject(earth).getSize(new THREE.Vector3()).x;
+    earth.scale.setScalar(2.2 / eb); earth.position.set(-6, -0.5, 0); s.add(earth);
+    const mars = models.mars.scene; const mb = new THREE.Box3().setFromObject(mars).getSize(new THREE.Vector3()).x;
+    mars.scale.setScalar(1.3 / mb); mars.position.set(6, 0.6, -1); s.add(mars);
+    const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(-4.8, -0.2, 0), new THREE.Vector3(0, 3.4, 1), new THREE.Vector3(5.2, 0.6, -1));
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(curve.getPoints(120)), new THREE.LineDashedMaterial({ color: 0x39c6ff, dashSize: 0.18, gapSize: 0.12 }));
+    line.computeLineDistances(); s.add(line);
+    const ship = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), new THREE.MeshBasicMaterial({ color: 0x9ff0ff }));
+    s.add(ship);
+    if (models.station) { const gal = models.station.scene; gal.scale.setScalar(7); gal.position.set(4, -2, -60); gal.traverse(o => { if (o.isMesh || o.isPoints) { o.material.transparent = true; o.material.opacity = 0.28; o.material.depthWrite = false; } }); s.add(gal); }
+    cam.position.set(0, 1.5, 15); cam.lookAt(0, 0.6, 0);
+    addView('transit', s, cam, t => {
+      earth.rotation.y = t * 0.15; mars.rotation.y = t * 0.1;
+      ship.position.copy(curve.getPoint(0.06 + 0.03 * Math.sin(t * 0.5)));
+      if (models.station) models.station.scene.rotation.y = t * 0.01;
+    });
+  }
+  // optional NASA insignia in the logo slot
+  if (CONFIG.useNasaInsignia && models.nasa) {
+    const slot = document.getElementById('logoSlot');
+    slot.innerHTML = '<div class="mini3d" data-view="logo" style="position:absolute;inset:-6px"></div>';
+    const s = basicLights(new THREE.Scene(), 0xffffff), cam = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
+    const n = models.nasa.scene; const piv = new THREE.Group(); piv.add(n); s.add(piv);
+    const bb = new THREE.Box3().setFromObject(n); n.position.sub(bb.getCenter(new THREE.Vector3()));
+    frameObject(piv, cam, 1.05);
+    addView('logo', s, cam, t => { piv.rotation.y = Math.sin(t * 0.6) * 0.35; });
+  }
+}
+// camera path inside the ISS photogrammetry (computed from the model bounds at load)
+const ISS_PATH = { a: [0, 1.2, 0], b: [6, 1.2, 0], yaw: 0 };
+function computeIssPath() {
+  if (!models.iss) return;
+  const env = qs.get('iss');
+  if (env) { const v = env.split(',').map(Number); ISS_PATH.a = v.slice(0, 3); ISS_PATH.b = v.slice(3, 6); ISS_PATH.yaw = v[6] || 0; return; }
+  Object.assign(ISS_PATH, ISS_DEFAULT);
+}
+const ISS_DEFAULT = { a: [-2.8, 1.15, 0], b: [-0.9, 1.15, 0], yaw: 0 };
+
+function renderMini(t) {
+  const r = mini.r; if (!r) return;
+  r.setScissorTest(false); r.clear(); r.setScissorTest(true);
+  const H = innerHeight;
+  for (const v of mini.views) {
+    const rc = v.el.getBoundingClientRect();
+    if (rc.width < 2 || rc.height < 2) continue;
+    const cl = v.clipEl ? v.clipEl.getBoundingClientRect() : rc;
+    const x0 = Math.max(rc.left, cl.left + 1), y0 = Math.max(rc.top, cl.top + 1);
+    const x1 = Math.min(rc.right, cl.right - 1), y1 = Math.min(rc.bottom, cl.bottom - 1);
+    if (x1 <= x0 || y1 <= y0) continue;
+    v.update?.(t);
+    v.cam.aspect = rc.width / rc.height; v.cam.updateProjectionMatrix();
+    r.setViewport(rc.left, H - rc.bottom, rc.width, rc.height);
+    r.setScissor(x0, H - y1, x1 - x0, y1 - y0);
+    r.render(v.scene, v.cam);
+  }
+}
+
+/* ============================================================
+   WAVEFORMS (2D canvas)
+   ============================================================ */
+const waves = [];
+function regWave(canvas, fn) { waves.push({ c: canvas, ctx: canvas.getContext('2d'), fn }); }
+function sizeWaves() {
+  const dpr = Math.min(devicePixelRatio, 2);
+  for (const w of waves) { const r = w.c.getBoundingClientRect(); w.c.width = Math.max(10, r.width * dpr); w.c.height = Math.max(10, r.height * dpr); }
+}
+const hash = n => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); };
+function ecg(t, hr, irregular) {
+  // beat timeline with optional irregular R-R intervals
+  let period = 60 / hr, beatStart, beatIdx;
+  if (irregular) {
+    // walk beats: deterministic jittered periods
+    beatIdx = Math.floor(t / period); let tt = 0;
+    const base = Math.max(0, beatIdx - 3); tt = base * period;
+    let i = base, p = period * (0.6 + 0.8 * hash(i));
+    while (tt + p < t) { tt += p; i++; p = period * (0.6 + 0.8 * hash(i)); }
+    beatStart = tt; period = p; beatIdx = i;
+  } else { beatIdx = Math.floor(t / period); beatStart = beatIdx * period; }
+  const x = (t - beatStart) / (60 / hr);
+  const g = (c, w, a) => a * Math.exp(-((x - c) ** 2) / (2 * w * w));
+  let y = 0;
+  if (!irregular) y += g(0.12, 0.025, 0.12);                 // P
+  else y += (hash(Math.floor(t * 40)) - 0.5) * 0.06;           // fibrillatory baseline
+  y += g(0.25, 0.008, -0.12) + g(0.27, 0.010, 1.0) + g(0.295, 0.010, -0.25); // QRS
+  y += g(0.5, 0.05, 0.28);                                     // T
+  return y;
+}
+function pleth(t, hr, amp = 1) {
+  const x = (t * hr / 60) % 1;
+  const g = (c, w, a) => a * Math.exp(-((x - c) ** 2) / (2 * w * w));
+  return amp * (g(0.18, 0.07, 0.9) + g(0.42, 0.08, 0.35));
+}
+function drawWave(w, t, color, fn, opts = {}) {
+  const { ctx, c } = w, W = c.width, H = c.height;
+  ctx.clearRect(0, 0, W, H);
+  // grid
+  ctx.strokeStyle = 'rgba(57,198,255,0.08)'; ctx.lineWidth = 1;
+  for (let gx = 0; gx < W; gx += W / 12) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+  const span = opts.span ?? 4, n = Math.floor(W / 2);
+  ctx.beginPath();
+  for (let i = 0; i <= n; i++) {
+    const tt = t - span + span * i / n, y = fn(tt);
+    const px = i / n * W, py = H * (opts.mid ?? 0.62) - y * H * (opts.gain ?? 0.5);
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.strokeStyle = color; ctx.lineWidth = Math.max(1.5, H / 40); ctx.shadowColor = color; ctx.shadowBlur = 8;
+  ctx.stroke(); ctx.shadowBlur = 0;
+  // head dot
+  const y = fn(t); ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(W - 3, H * (opts.mid ?? 0.62) - y * H * (opts.gain ?? 0.5), Math.max(2, H / 30), 0, 7); ctx.fill();
+}
+const COL = { ok: '#39c6ff', warn: '#ffb020', crit: '#ff3b4e' };
+function drawTrend(w, arr, color, r) {
+  const { ctx, c } = w, W = c.width, H = c.height; ctx.clearRect(0, 0, W, H);
+  if (arr.length < 2) return;
+  const lo = Math.min(r.warn[0], ...arr) - 1, hi = Math.max(r.warn[1] === 100 ? 100 : r.warn[1], ...arr) + 1;
+  const Y = v => H - (v - lo) / (hi - lo) * H;
+  ctx.fillStyle = 'rgba(45,255,138,0.06)'; ctx.fillRect(0, Y(r.ok[1]), W, Y(r.ok[0]) - Y(r.ok[1]));
+  ctx.beginPath(); arr.forEach((v, i) => { const x = i / (240 - 1) * W, y = Y(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.shadowColor = color; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0;
+}
+
+/* ============================================================
+   UI BINDINGS
+   ============================================================ */
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+function vitalStatus() {
+  const v = state.v;
+  return { hr: classify(v.hr, RANGES.hr), spo2: classify(v.spo2, RANGES.spo2), temp: classify(v.temp, RANGES.temp), bp: classify(v.sys, RANGES.sys), rr: classify(v.rr, RANGES.rr) };
+}
+function targetV() { return { ...BASE_V, ...scen().v }; }
+function targetE() { return { ...BASE_E, ...scen().e }; }
+function fmtDelta(d, dec) {
+  const a = Math.abs(d);
+  if (a < Math.pow(10, -dec) / 2) return ['flat', '— ' + (0).toFixed(dec)];
+  return d > 0 ? ['up', '▲ +' + a.toFixed(dec)] : ['down', '▼ -' + a.toFixed(dec)];
+}
+function past(arr, n) { return arr.length > n ? arr[arr.length - 1 - n] : arr[0]; }
+function updateVitalsUI() {
+  const v = state.v, st = vitalStatus(), h = state.hist;
+  const set = (k, val, dec, histKey) => {
+    const row = $(`.vrow[data-k="${k}"]`); if (!row) return;
+    row.querySelector('.vval b').textContent = val;
+    row.classList.remove('warn', 'crit'); if (st[k] !== 'ok') row.classList.add(st[k]);
+    const em = row.querySelector('.d');
+    const arr = h[histKey]; const d = arr.length ? arr[arr.length - 1] - past(arr, 20) : 0;
+    const [cls, txt] = fmtDelta(d, dec); em.className = 'd ' + cls + (st[k] !== 'ok' ? ' bad' : ''); em.textContent = txt;
+  };
+  set('hr', Math.round(v.hr), 0, 'hr');
+  set('spo2', Math.round(v.spo2), 1, 'spo2');
+  set('temp', v.temp.toFixed(1), 1, 'temp');
+  set('bp', `${Math.round(v.sys)}/${Math.round(v.dia)}`, 0, 'sys');
+  set('rr', Math.round(v.rr), 0, 'rr');
+}
+function updateEnvUI() {
+  const e = state.e, tgt = targetE();
+  const tiles = { o2: [e.o2.toFixed(1) + '%', 1], co2: [e.co2.toFixed(2) + '%', 2], press: [e.press.toFixed(1) + ' <small>psi</small>', 1], temp: [e.temp.toFixed(1) + ' <small>°C</small>', 1], rad: [e.rad.toFixed(2) + ' <small>mSv/h</small>', 2] };
+  for (const [k, [txt, dec]] of Object.entries(tiles)) {
+    const el = $(`.etile[data-e="${k}"]`); el.querySelector('b').innerHTML = txt;
+    const s = classify(e[k], ENV_RANGES[k]); el.classList.remove('warn', 'crit'); if (s !== 'ok') el.classList.add(s);
+    const [cls, t] = fmtDelta((tgt[k] - e[k]) * 0.1 + (state.envJit[k] || 0), dec);
+    const em = el.querySelector('.d'); em.className = 'd ' + cls; em.textContent = t;
+  }
+}
+function updateStatusUI() {
+  const lvl = overall();
+  const pill = $('#hdStatus'); pill.className = 'status-pill ' + (lvl === 'ok' ? '' : lvl);
+  pill.querySelector('b').textContent = lvl === 'ok' ? 'STABLE' : lvl === 'warn' ? 'WARNING' : 'CRITICAL';
+  const sys = { ...SYS_OK, ...scen().sys };
+  $$('.sys').forEach(el => { const s = sys[el.dataset.sys]; el.classList.remove('warn', 'crit'); if (s !== 'ok') el.classList.add(s);
+    el.querySelector('b').textContent = s === 'ok' ? 'Nominal' : s === 'warn' ? 'Degraded' : 'Fault'; });
+  const sc = scen();
+  $('#aiText').innerHTML = sc.ai.map(p => `<p>${p}</p>`).join('');
+  const g = sc.gen; $('#gExpr').textContent = g.expr.toFixed(1) + '%';
+  const eb = $('#gExprBar'); eb.style.width = g.expr + '%'; eb.className = g.expr < 93 ? 'warn' : '';
+  $('#gMut').textContent = g.mut[0]; const mb = $('#gMutBar'); mb.style.width = g.mut[1] + '%'; mb.className = g.mut[1] > 50 ? 'warn' : '';
+  const ls = { ...ALL_OK, ...sc.organs }.respiratory;
+  $('#lungLegend').innerHTML = `Lung tissue status: <b style="color:var(--${ls === 'ok' ? 'ok' : ls})">${ls === 'ok' ? 'NOMINAL' : ls === 'warn' ? 'WATCH' : 'ALERT'}</b>`;
+  renderGeneList();
+}
+// body scan list: in scan mode, items resolve as the scan line passes their height
+const SCAN_ORDER = { skeletal: 0.15, muscular: 0.35, digestive: 0.55, cardiovascular: 0.7, respiratory: 0.78, neurological: 0.93 };
+function updateScanList() {
+  const st = { ...ALL_OK, ...scen().organs };
+  const p = state.scanProg;
+  $$('#scanList li').forEach(li => {
+    const k = li.dataset.s, s = st[k];
+    const pending = state.mode === 'scan' && state.scanFast && p < SCAN_ORDER[k];
+    li.className = pending ? 'pending' : (s === 'ok' ? '' : s);
+    li.querySelector('b').textContent = pending ? '···' : s === 'ok' ? 'OK' : s === 'warn' ? 'WATCH' : 'ALERT';
+  });
+  const pct = Math.round(p * 100);
+  $('#scanPct').textContent = pct + '%';
+  $('#scanArc').style.strokeDashoffset = (251.3 * (1 - p)).toFixed(1);
+  const lvl = overall(); $('#scanArc').style.color = `var(--${lvl === 'ok' ? 'ok' : lvl})`;
+  $('#pScan h3').innerHTML = (state.mode === 'scan' && !state.scanFast) ? 'BODY SCAN<br>COMPLETE' : 'BODY SCAN<br>IN PROGRESS';
+}
+function setScenario(i) {
+  state.scen = i; $('#scenarioSel').value = i;
+  $$('.card').forEach((c, j) => c.classList.toggle('on', j === i));
+  applyOrganStatus(); updateStatusUI(); updateScanList();
+  if (state.mode === 'scan') { state.scanProg = 0; state.scanFast = true; state.scanStart = performance.now(); }
+}
+function renderGeneList() {
+  const sc = scen(), rad = sc.id === 'radiation';
+  const genes = [
+    ['Telomere length', 'Chromosome-end length; shifted in long-duration flight', rad ? 'warn' : 'ok'],
+    ['DNA damage response', 'Double-strand break repair activity', rad ? 'warn' : 'ok'],
+    ['Gene expression drift', `Stability ${sc.gen.expr.toFixed(1)}% vs. pre-flight baseline`, sc.gen.expr < 93 ? 'warn' : 'ok'],
+    ['Immune gene activity', 'Inflammation-related expression', sc.id === 'heat' ? 'warn' : 'ok'],
+    ['Oxidative stress', 'Oxidative damage markers', (rad || sc.id === 'hypoxia') ? 'warn' : 'ok'],
+    ['Mitochondrial function', 'Cellular energy pathways', sc.id === 'hypoxia' ? 'warn' : 'ok'],
+  ];
+  $('#geneList').innerHTML = genes.map(([n, d, s]) => `<div class="gene"><b>${n}</b><span>${d}</span><b style="color:var(--${s === 'ok' ? 'ok' : s})">${s === 'ok' ? 'STABLE' : 'WATCH'}</b></div>`).join('');
+}
+function buildStatic() {
+  const sel = $('#scenarioSel');
+  sel.innerHTML = SCENARIOS.map((s, i) => `<option value="${i}">${i + 1}. ${s.name}</option>`).join('');
+  sel.onchange = () => setScenario(+sel.value);
+  $('#simCards').innerHTML = SCENARIOS.map((s, i) => `<div class="card" data-i="${i}"><span class="lvl ${s.level}">${s.level === 'ok' ? 'NOMINAL' : s.level === 'warn' ? 'WARNING' : 'CRITICAL'}</span><h3>${i + 1}. ${s.name}</h3><p>${s.desc}</p><span class="k">key [${i + 1}]</span></div>`).join('');
+  $$('.card').forEach(c => c.onclick = () => setScenario(+c.dataset.i));
+  $('#rangeTable').innerHTML = '<tr><th>READING</th><th>NORMAL</th><th>WATCH</th><th>ALERT</th></tr>' + Object.values(RANGES).map(r =>
+    `<tr><td>${r.label}</td><td>${r.ok[0]}–${r.ok[1]} ${r.unit}</td><td>${r.warn[0]}–${r.warn[1]}</td><td>outside watch band</td></tr>`).join('');
+  $$('#modeSwitch button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+  $$('.tab').forEach(t => t.onclick = () => {
+    $$('.tab').forEach(x => x.classList.toggle('active', x === t));
+    $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + t.dataset.tab));
+    const ov = t.dataset.tab === 'overview'; holoCanvas.style.display = ov ? 'block' : 'none';
+    requestAnimationFrame(sizeWaves);
+  });
+  $('#fsBtn').onclick = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.();
+  $('#aiBtn').onclick = () => {
+    const sc = scen(), st = vitalStatus();
+    const flags = Object.entries(st).filter(([, s]) => s !== 'ok').map(([k, s]) => `<li><b style="color:var(--${s})">${s.toUpperCase()}</b> — ${(RANGES[k] || RANGES.sys).label}</li>`).join('') || '<li>All readings inside normal ranges.</li>';
+    $('#mdTitle').textContent = 'AI INSIGHTS — ' + sc.name.toUpperCase();
+    $('#mdBody').innerHTML = `<h4>SUMMARY</h4>${sc.ai.map(p => `<p>${p}</p>`).join('')}<h4>FLAGGED READINGS</h4><ul>${flags}</ul><h4>RECOMMENDED ACTIONS</h4><ul>${sc.recs.map(r => `<li>${r}</li>`).join('')}</ul>`;
+    $('#modal').classList.remove('hidden');
+  };
+  $('#modalX').onclick = () => $('#modal').classList.add('hidden');
+  $('#modal').onclick = e => { if (e.target.id === 'modal') $('#modal').classList.add('hidden'); };
+  addEventListener('keydown', e => {
+    if (e.target.tagName === 'SELECT') return;
+    if (e.key === 'm' || e.key === 'M') setMode(state.mode === 'scan' ? 'astronaut' : 'scan');
+    const n = +e.key; if (n >= 1 && n <= SCENARIOS.length) setScenario(n - 1);
+    if (e.key === 'Escape') $('#modal').classList.add('hidden');
+  });
+  $('#hdMission').textContent = CONFIG.mission; $('#hdAstro').textContent = CONFIG.astronaut;
+
+  // waves
+  $$('.vrow').forEach(row => {
+    const k = row.dataset.k, cv = row.querySelector('canvas');
+    regWave(cv, (w, t) => {
+      const s = vitalStatus()[k], c = COL[s], v = state.v, sc = scen();
+      if (k === 'hr') drawWave(w, t, c, tt => ecg(tt, v.hr, sc.irregular), { gain: 0.55, mid: 0.7, span: 3.5 });
+      if (k === 'spo2') drawWave(w, t, c, tt => pleth(tt, v.hr, v.spo2 < 92 ? 0.55 : 1), { gain: 0.6, mid: 0.78, span: 4 });
+      if (k === 'temp') drawWave(w, t, c, tt => 0.25 * Math.sin(tt * 0.9) + 0.12 * Math.sin(tt * 2.3 + 1) + (v.temp - 36.6) * 0.3, { gain: 0.5, mid: 0.55, span: 8 });
+      if (k === 'bp') drawWave(w, t, c, tt => { const x = (tt * v.hr / 60) % 1; return (x < 0.15 ? x / 0.15 : Math.exp(-(x - 0.15) * 4.5)) * 0.9 + 0.12 * Math.exp(-((x - 0.38) ** 2) / 0.002); }, { gain: 0.55, mid: 0.8, span: 3.5 });
+      if (k === 'rr') drawWave(w, t, c, tt => Math.sin(tt * Math.PI * 2 * v.rr / 60) * 0.6, { gain: 0.55, mid: 0.5, span: 10 });
+    });
+  });
+  regWave($('#neuralWave'), (w, t) => drawWave(w, t, '#39c6ff', tt => Math.sin(tt * 9) * 0.25 + Math.sin(tt * 23 + 1) * 0.15 + (hash(Math.floor(tt * 30)) - 0.5) * 0.35, { gain: 0.6, mid: 0.5, span: 3 }));
+  regWave($('#bioWave'), (w, t) => drawWave(w, t, scen().id === 'radiation' ? '#ffb020' : '#39c6ff', tt => Math.sin(tt * 2.1) * 0.3 + Math.sin(tt * 5.3) * 0.15 + (scen().id === 'radiation' ? Math.sin(tt * 13) * 0.25 : 0), { gain: 0.6, mid: 0.5, span: 6 }));
+  $$('.trend').forEach(tr => {
+    const k = tr.dataset.k, r = RANGES[k];
+    regWave(tr.querySelector('canvas'), (w) => {
+      const arr = state.hist[k], last = arr[arr.length - 1] ?? 0;
+      const s = classify(last, r);
+      tr.querySelector('b').textContent = (k === 'temp' ? last.toFixed(1) : Math.round(last)) + ' ' + r.unit;
+      tr.querySelector('b').style.color = s === 'ok' ? '#fff' : COL[s];
+      drawTrend(w, arr, COL[s], r);
+    });
+  });
+}
+
+/* ============================================================
+   SIMULATION TICK
+   ============================================================ */
+state.envJit = {};
+function simTick(dt) {
+  const tv = targetV(), te = targetE();
+  const k = Math.min(1, dt * 0.9);
+  for (const key of Object.keys(tv)) {
+    const noise = { hr: 0.8, spo2: 0.08, temp: 0.01, sys: 0.6, dia: 0.4, rr: 0.15 }[key] || 0;
+    state.v[key] += (tv[key] - state.v[key]) * k + (Math.random() - 0.5) * noise * dt * 4;
+  }
+  if (scen().irregular) state.v.hr += (Math.random() - 0.5) * 6 * dt * 4;
+  state.v.spo2 = Math.min(100, state.v.spo2);
+  for (const key of Object.keys(te)) {
+    state.e[key] += (te[key] - state.e[key]) * k * 0.7;
+    state.envJit[key] = (Math.random() - 0.5) * ({ o2: 0.1, co2: 0.01, press: 0.02, temp: 0.04, rad: 0.004 }[key]);
+  }
+  state.neural += (scen().neural - state.neural) * k + (Math.random() - 0.5) * 0.2;
+}
+let histAcc = 0, uiAcc = 0;
+function recordHist(dt) {
+  histAcc += dt; if (histAcc < 0.25) return; histAcc = 0;
+  const v = state.v, h = state.hist;
+  for (const [k, val] of [['hr', v.hr], ['spo2', v.spo2], ['temp', v.temp], ['sys', v.sys], ['rr', v.rr]]) { h[k].push(val); if (h[k].length > 240) h[k].shift(); }
+}
+const pad = n => String(n).padStart(2, '0');
+const hms = s => `${pad(Math.floor(s / 3600))}:${pad(Math.floor(s / 60) % 60)}:${pad(Math.floor(s) % 60)}`;
+function clockTick() {
+  const d = new Date();
+  $('#clock').textContent = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
+  const el = (performance.now() - state.t0) / 1000;
+  $('#mElapsed').textContent = hms(CONFIG.startElapsed + el);
+  $('#mNext').textContent = '+ ' + hms(Math.max(0, CONFIG.startNextCheckpoint - el));
+  $('#tDay').textContent = Math.floor((CONFIG.startElapsed + el) / 86400) + 1;
+  $('#neuralVal').textContent = state.neural.toFixed(1) + '%';
+}
+
+/* ============================================================
+   MAIN LOOP
+   ============================================================ */
+let last = performance.now(), waveAcc = 0;
+function loop(now) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  const t = (now - state.t0) / 1000;
+  holoTime.value = t;
+  simTick(dt); recordHist(dt);
+  uiAcc += dt; if (uiAcc > 0.5) { uiAcc = 0; updateVitalsUI(); updateEnvUI(); updateStatusUI(); clockTick(); }
+  if (state.mode === 'astronaut') { state.scanProg += dt * 0.004; if (state.scanProg > 1) state.scanProg = 0; }
+  waveAcc += dt; if (waveAcc > 1 / 30) { waveAcc = 0; for (const w of waves) if (w.c.offsetParent) w.fn(w, t); }
+
+  if (holoCanvas.style.display !== 'none' && holo.r) {
+    holo.mixer?.update(dt);
+    if (anatMats.heart) { const u = anatMats.heart.userData.u; u.uPulseSpeed.value = state.v.hr / 60 * Math.PI * 2; if (u.uPulse.value < 0.5) u.uPulse.value = 0.5; }
+    updateModeVisuals(dt);
+    holo.spinA.rotation.z = t * 0.25; holo.spinB.rotation.z = -t * 0.4;
+    holo.parts.rotation.y = t * 0.05;
+    holo.ctl.update();
+    if (holo.composer) holo.composer.render(); else holo.r.render(holo.scene, holo.cam);
+    updateMarkers();
+  } else updateMarkers();
+  renderMini(t);
+}
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+async function boot() {
+  // prefill 60 s of trend history around baseline so charts aren't empty on first view
+  for (let i = 0; i < 240; i++) { const n = () => Math.random() - 0.5;
+    state.hist.hr.push(72 + n() * 3); state.hist.spo2.push(98 + n() * 0.6); state.hist.temp.push(36.6 + n() * 0.08); state.hist.sys.push(118 + n() * 3); state.hist.rr.push(16 + n()); }
+  buildStatic();
+  initHolo(); initMini();
+  layout(); addEventListener('resize', layout);
+  setLoad();
+  await Promise.all(MODEL_LIST.map(load));
+  computeIssPath();
+  setupAstronaut();
+  // measure anatomy top (world) for the scan sweep
+  if (holo.anat) { holo.anat.visible = true; holo.astro.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(holo.anat); holo.anatTop = b.max.y; holo.anat.visible = false; }
+  setupMiniViews();
+  applyOrganStatus(); updateStatusUI(); updateVitalsUI(); updateEnvUI(); updateScanList(); clockTick();
+  layout();
+  if (qs.get('mode') === 'scan') setMode('scan');
+  if (qs.has('s')) setScenario(+qs.get('s'));
+  if (qs.has('tab')) document.querySelector(`.tab[data-tab="${qs.get('tab')}"]`)?.click();
+  document.getElementById('loader').classList.add('done');
+  requestAnimationFrame(loop);
+  window.__bh = { holo, state, models, CONFIG, setMode, setScenario };
+  setTimeout(() => { document.title = 'done'; }, 1500);
+}
+boot();
