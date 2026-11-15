@@ -560,3 +560,34 @@ html.zoomed,html.zoomed body{overflow:auto}
 .gen3d .view-tip{display:none}
 .gen3d .mini3d{bottom:250px !important}
 .gene-detail{max-height:230px}
+
+/* ================= v8 ================= */
+.trend label b small{display:block;font-family:Rajdhani;font-size:15px;font-weight:600;color:var(--dim);letter-spacing:0}
+.trend{grid-template-columns:260px 1fr}
+.gs-how-btn{position:absolute;right:190px;top:12px;padding:7px 12px;font-size:11px}
+.genesim h2{font-size:19px}
+.gs-left .ctl label{font-size:15px}
+.gd-bar.career{margin:6px 0 16px}
+.gd-bar.career span{font-size:11px}
+.srcrow{margin-top:6px}
+.spe-row{display:grid}
+.gen-sim-line{position:absolute;left:300px;right:22px;top:58px;font-size:13.5px;color:#cfe3f5;line-height:1.3}
+.gen-sim-line span{font-family:Orbitron;font-size:10px;letter-spacing:1px;color:var(--cy2);border:1px solid var(--line);border-radius:3px;padding:1px 5px;margin-right:4px}
+.genetic .gm{margin-bottom:12px}
+.ms-intro{font-size:16px;color:#cfe3f5;line-height:1.35;padding:0 20px 10px}
+.timeline .ctl{grid-template-columns:150px 1fr}
+.timeline .ctl label b{font-family:Orbitron;font-size:13px;color:var(--cy2);margin-left:6px}
+.ms-day{display:flex;gap:8px;align-items:center}.ms-day input{flex:1;accent-color:#39c6ff}.ms-day .hud-btn{padding:6px 12px}
+#msInfo{padding:6px 20px}
+.timeline ol{padding:4px 28px}
+.timeline li{padding:10px 0 10px 26px;font-size:16px}
+.timeline li::before{top:15px}
+
+.genetic .gen-metrics{top:100px}
+#zoomCtl{right:auto;left:50%;bottom:2px;transform:translateX(-50%);padding:2px;opacity:.85}
+#zoomCtl button{width:32px;height:24px;font-size:11px}
+#zoomCtl span{font-size:11px;min-width:40px}
+
+.ai-txt p.c{color:var(--crit)} .ai-txt p.w{color:var(--warn)}
+.ai-txt{font-size:17px}
+.ai-btn,.ai-btn.alt{bottom:16px;height:38px;display:flex;align-items:center;justify-content:center}

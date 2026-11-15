@@ -8,8 +8,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { initResearch, onTab, logScan, getGenesData, getMissionData } from './research.js?v=7';
-import { chips, initSources } from './sources.js?v=7';
+import { initResearch, onTab, logScan, getGenesData, getMissionData } from './research.js?v=8';
+import { chips, initSources } from './sources.js?v=8';
 
 /* ============================================================
    CONFIG
@@ -713,13 +713,24 @@ function setupMiniViews() {
     line.computeLineDistances(); s.add(line);
     const ship = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), new THREE.MeshBasicMaterial({ color: 0x9ff0ff }));
     s.add(ship);
-    if (models.station) { const gal = models.station.scene; gal.scale.setScalar(7); gal.position.set(4, -2, -60); gal.traverse(o => { if (o.isMesh || o.isPoints) { o.material.transparent = true; o.material.opacity = 0.28; o.material.depthWrite = false; } }); s.add(gal); }
+    { const N = 1500, g = new THREE.BufferGeometry(), a = new Float32Array(N * 3); for (let i = 0; i < N; i++) a.set([(Math.random() - 0.5) * 120, (Math.random() - 0.5) * 70, -20 - Math.random() * 60], i * 3);
+      g.setAttribute('position', new THREE.BufferAttribute(a, 3)); s.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfe6ff, size: 0.12, transparent: true, opacity: 0.7 }))); }
+    const orbit = new THREE.Line(new THREE.BufferGeometry().setFromPoints(new THREE.EllipseCurve(0, 0, 1.6, 1.6).getPoints(80).map(p => new THREE.Vector3(p.x, 0, p.y))), new THREE.LineBasicMaterial({ color: 0x39c6ff, transparent: true, opacity: 0.6 }));
+    orbit.position.copy(earth.position); orbit.rotation.x = 0.35; s.add(orbit);
+    const ret = new THREE.Line(new THREE.BufferGeometry().setFromPoints(new THREE.QuadraticBezierCurve3(new THREE.Vector3(5.2, 0.6, -1), new THREE.Vector3(0, -3.2, 1), new THREE.Vector3(-4.8, -0.6, 0)).getPoints(120)), new THREE.LineDashedMaterial({ color: 0x7fe0ff, dashSize: 0.12, gapSize: 0.16, transparent: true, opacity: 0.5 }));
+    ret.computeLineDistances(); s.add(ret);
+    const retCurve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(5.2, 0.6, -1), new THREE.Vector3(0, -3.2, 1), new THREE.Vector3(-4.8, -0.6, 0));
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 16), new THREE.MeshBasicMaterial({ color: 0x39c6ff, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false })); s.add(glow);
     cam.position.set(0, 1.5, 15); cam.lookAt(0, 0.6, 0);
     const torb = orbitable('transit', cam, new THREE.Vector3(0, 0.6, 0));
     addView('transit', s, cam, t => { torb();
       earth.rotation.y = t * 0.15; mars.rotation.y = t * 0.1;
-      ship.position.copy(curve.getPoint(0.06 + 0.03 * Math.sin(t * 0.5)));
-      if (models.station) models.station.scene.rotation.y = t * 0.01;
+      const st = mini.transitState || { key: 'mars', frac: 0 }, leo = st.key === 'leo' || st.key === 'twins';
+      orbit.visible = leo; line.visible = !leo; ret.visible = st.key === 'marsrt';
+      if (leo) { const a = t * 1.2; ship.position.set(earth.position.x + Math.cos(a) * 1.6, earth.position.y + Math.sin(a) * 1.6 * Math.sin(0.35), earth.position.z + Math.sin(a) * 1.6 * Math.cos(0.35)); }
+      else if (st.key === 'marsrt') ship.position.copy(st.frac <= 0.5 ? curve.getPoint(st.frac * 2) : retCurve.getPoint((st.frac - 0.5) * 2));
+      else ship.position.copy(curve.getPoint(st.frac));
+      glow.position.copy(ship.position); glow.scale.setScalar(1 + 0.3 * Math.sin(t * 4));
     });
   }
   // optional NASA insignia in the logo slot
@@ -881,12 +892,12 @@ function updateStatusUI() {
   $$('.sys').forEach(el => { const s = sys[el.dataset.sys]; el.classList.remove('warn', 'crit'); if (s !== 'ok') el.classList.add(s);
     el.querySelector('b').textContent = s === 'ok' ? 'Nominal' : s === 'warn' ? 'Degraded' : 'Fault'; });
   const sc = scen();
-  $('#aiText').innerHTML = sc.ai.map(p => `<p>${p}</p>`).join('');
+  const gsum = gsim.summary, gst = geneStatus(), gflag = Object.values(gst).filter(x => x !== 'ok').length;
+  const genLine = gsum && (gsum.careerPct >= 70 || gst.dna !== 'ok') ? `<p class="${gsum.careerPct >= 100 || gst.dna === 'crit' ? 'c' : 'w'}">Genetics: ${Math.round(gsum.dose)} mSv on this mission (${Math.round(gsum.careerPct)}% of NASA career limit) · ${gflag} marker${gflag === 1 ? '' : 's'} flagged.</p>` : '';
+  $('#aiText').innerHTML = sc.ai.map(p => `<p>${p}</p>`).join('') + genLine;
   const key = sc.id + '|' + (sc.src || []).join(',');
   if (updateStatusUI._k !== key) { updateStatusUI._k = key; $('#aiSrc').innerHTML = chips(sc.src); $('#scenSrc').innerHTML = chips(sc.src); }
-  const g = sc.gen; $('#gExpr').textContent = g.expr.toFixed(1) + '%';
-  const eb = $('#gExprBar'); eb.style.width = g.expr + '%'; eb.className = g.expr < 93 ? 'warn' : '';
-  $('#gMut').textContent = g.mut[0]; const mb = $('#gMutBar'); mb.style.width = g.mut[1] + '%'; mb.className = g.mut[1] > 50 ? 'warn' : '';
+  renderGenOverview();
   const ls = { ...ALL_OK, ...sc.organs }.respiratory;
   const cs = { ...ALL_OK, ...sc.organs }.cardiovascular;
   $('#heartLegend').innerHTML = `Cardiac status: <b style="color:var(--${cs === 'ok' ? 'ok' : cs})">${cs === 'ok' ? 'NOMINAL' : cs === 'warn' ? 'WATCH' : 'ALERT'}</b> · ${Math.round(state.v.hr)} bpm${sc.irregular ? ' · irregular' : ''}`;
@@ -964,6 +975,66 @@ function geneStatus() {
   for (const k of Object.keys(base)) base[k] = worst(base[k], g[k] || 'ok');
   return base;
 }
+// ---------- mission control (MISSION tab), shares its profile with the gene simulator ----------
+const ms = { day: 1, playing: false, acc: 0 };
+function msPhase(key, day, days) {
+  if (day === 0) return 'Pre-launch';
+  if (key === 'leo' || key === 'twins') return day >= days ? 'Return to Earth' : day <= 1 ? 'Launch & ISS docking' : 'ISS operations (Low Earth Orbit)';
+  if (day <= 1) return 'Launch & trans-Mars injection';
+  if (key === 'marsrt') return day < days / 2 ? 'Outbound cruise to Mars' : day >= days ? 'Earth return' : 'Return cruise to Earth';
+  return day >= days ? 'Mars arrival' : 'Deep-space cruise to Mars';
+}
+function msTimeline(key, days) {
+  const ev = [['Launch', 0]];
+  if (key === 'leo' || key === 'twins') {
+    ev.push(['ISS docking', 1], ['Mid-mission medical check', Math.round(days / 2)]);
+    if (key === 'twins') ev.push(['Twins Study: in-flight sample (gene expression, telomeres)', Math.round(days * 0.5) + 10]);
+    ev.push(['Return to Earth', days]);
+  } else if (key === 'mars') {
+    ev.push(['Trans-Mars injection', 1]);
+    (gsim.events || []).filter(e => e.type !== 'communication_delay').forEach(e => ev.push([`${e.description} (Ares-180)`, e.day_start]));
+    if (!(gsim.events || []).length) ev.push(['Solar particle event (Ares-180)', 143], ['Critical EVA (Ares-180)', 145]);
+    ev.push(['Mars arrival', days]);
+  } else {
+    ev.push(['Trans-Mars injection', 1], ['Mars flyby / turnaround', Math.round(days / 2)], ['Earth return', days]);
+  }
+  return ev.sort((a, b) => a[1] - b[1]);
+}
+function msRender() {
+  const key = $('#msProf').value, sit = SIT[key], days = +$('#gsDays').value || sit.days, day = Math.min(ms.day, days);
+  $('#msDay').max = days; $('#msDay').value = day; $('#msDayV').textContent = `${day} / ${days}`;
+  const dose = sit.rate * day, lo = (sit.lo ?? sit.rate) * day, hi = (sit.hi ?? sit.rate) * day, prior = +$('#gsPrior').value, pct = (prior + dose) / 6;
+  const phase = msPhase(key, day, days);
+  $('#tDay').textContent = day; $('#tPhase').textContent = phase;
+  $('#tDose').textContent = sit.lo ? `${Math.round(lo)}–${Math.round(hi)} mSv` : `${Math.round(dose)} mSv`;
+  const cCls = pct >= 100 ? 'crit' : pct >= 70 ? 'warn' : 'ok';
+  $('#msInfo').innerHTML = `<div class="kv"><span>Phase</span><b>${phase}</b></div>
+    <div class="kv"><span>Dose rate</span><b>${sit.lo ? `${sit.lo}–${sit.hi}` : sit.rate} mSv/day</b></div>
+    <div class="kv"><span>Dose so far</span><b>${$('#tDose').textContent}</b></div>
+    <div class="kv"><span>Career total vs NASA limit</span><b class="${cCls}">${Math.round(prior + dose)} mSv · ${Math.round(pct)}%</b></div>
+    <div class="gd-bar career"><i class="${cCls}" style="width:${Math.min(100, pct)}%"></i></div>
+    <div class="srcrow">${chips([sit.src, 'std3001_rad'])}</div>`;
+  $('#timeline').innerHTML = msTimeline(key, days).map(([n, d]) => `<li class="${d < day ? 'done' : d === day || (d > day && !msTimeline._n) ? '' : ''}${Math.abs(d - day) <= 1 ? ' now' : d < day ? ' done' : ''}"><b>${esc(n)}</b><span>Day ${d}</span></li>`).join('');
+  mini.transitState = { key, frac: days ? day / days : 0 };
+}
+function msSync(from) {
+  if (from === 'gs') { if ($('#msProf').value !== $('#gsSit').value) { $('#msProf').value = $('#gsSit').value; } }
+  msRender();
+}
+function initMission() {
+  $('#msProf').value = $('#gsSit').value;
+  $('#msProf').addEventListener('input', () => { $('#gsSit').value = $('#msProf').value; $('#gsDays').value = SIT[$('#msProf').value].days; ms.day = 1; gsUpdate(); });
+  $('#msDay').addEventListener('input', () => { ms.day = +$('#msDay').value; ms.playing = false; $('#msPlay').textContent = '▶'; msRender(); });
+  $('#msPlay').onclick = () => { ms.playing = !ms.playing; $('#msPlay').textContent = ms.playing ? '❚❚' : '▶'; if (ms.playing && ms.day >= +$('#msDay').max) ms.day = 0; };
+  msRender();
+}
+function msTick(dt) {
+  if (!ms.playing) return;
+  ms.acc += dt; if (ms.acc < 0.08) return; ms.acc = 0;
+  const max = +$('#msDay').max; ms.day = Math.min(max, ms.day + Math.max(1, Math.round(max / 150)));
+  if (ms.day >= max) { ms.playing = false; $('#msPlay').textContent = '▶'; }
+  msRender();
+}
 // ---------- radiation → gene alteration simulator (NASA rates + published gene data) ----------
 const gsim = { status: null, genes: null, crew: null };
 const SIT = {
@@ -984,13 +1055,20 @@ const GENE_ROLE = {
 };
 const roleOf = sym => { for (const [k, v] of Object.entries(GENE_ROLE)) if (sym.startsWith(k)) return v; return ''; };
 function gsUpdate() {
-  const sit = SIT[$('#gsSit').value], days = +$('#gsDays').value, spe = $('#gsSpe').checked, shelter = $('#gsShelter').checked, vitA = $('#gsVitA').checked;
-  $('#gsDaysV').textContent = days;
-  const dose = sit.rate * days, lo = (sit.lo ?? sit.rate) * days, hi = (sit.hi ?? sit.rate) * days;
-  const speOpen = spe && !shelter;
+  const sitKey = $('#gsSit').value, sit = SIT[sitKey], days = +$('#gsDays').value, spe = $('#gsSpe').checked, vitA = $('#gsVitA').checked;
+  const prior = +$('#gsPrior').value, speDose = spe ? +$('#gsSpeDose').value : 0, who = $('#gsWho').value;
+  $('#gsDaysV').textContent = days; $('#gsPriorV').textContent = prior + ' mSv'; $('#gsSpeV').textContent = $('#gsSpeDose').value + ' mSv';
+  $('#gsSpeRow').style.display = spe ? '' : 'none';
+  lsSet('beyond-horizons:gsim', { sit: sitKey, days, spe, speDose: +$('#gsSpeDose').value, vitA, prior, who });
+  const shelter = false, speOpen = spe && speDose >= 100;
+  const missionDose = sit.rate * days + speDose, lo = (sit.lo ?? sit.rate) * days + speDose, hi = (sit.hi ?? sit.rate) * days + speDose;
+  const dose = missionDose, career = prior + missionDose, careerPct = career / 6;
   const band = dose < 100 ? 0 : dose < 300 ? 1 : dose < 600 ? 2 : 3;
+  gsim.summary = { sitKey, label: sit.label, days, dose: missionDose, career, careerPct };
   const bandTxt = ['LOW', 'MODERATE', 'ELEVATED', 'HIGH'][band], bandCls = ['ok', 'warn', 'warn', 'crit'][band];
   const risk = dose / 1000 * 5;
+  const crewP = (gsim.crew || []).find(c => c.id === who);
+  const sens = crewP?.baseline?.radiation_sensitivity;
   // markers
   gsim.status = {
     dna: band >= 2 || speOpen ? 'crit' : band >= 1 || spe ? 'warn' : 'ok',
@@ -1002,14 +1080,16 @@ function gsUpdate() {
   };
   const crew = (gsim.crew || []).map(c => ({ n: c.display_name, r: c.role, s: c.baseline?.radiation_sensitivity ?? 0 })).sort((a, b) => b.s - a.s);
   const rng = sit.lo ? `${Math.round(lo)}–${Math.round(hi)} mSv` : `${Math.round(dose)} mSv`;
+  const cCls = careerPct >= 100 ? 'crit' : careerPct >= 70 ? 'warn' : 'ok';
+  const whoName = who === 'you' ? String(settings.astronaut) : crewP?.display_name || '';
   $('#gsDose').innerHTML = `
-    <div class="gd-big"><span>Cumulative dose</span><b class="${bandCls}">${rng}</b><em>${sit.rate} mSv/day × ${days} days · ${sit.label}${spe ? ' + solar event' : ''}</em>${chips([sit.src])}</div>
-    <div class="gd-bar"><i class="${bandCls}" style="width:${Math.min(100, dose / 10)}%"></i><span style="left:100%">1 Sv</span></div>
-    <div class="kv"><span>Dose band</span><b class="${bandCls}">${bandTxt}</b></div>
+    <div class="gd-big"><span>This mission's dose · ${esc(whoName)}</span><b class="${bandCls}">${rng}</b><em>${sit.rate} mSv/day × ${days} days · ${sit.label}${spe ? ` + solar event ${speDose} mSv` : ''}</em>${chips([sit.src])}</div>
+    <div class="kv"><span>Career total (previous + this mission)</span><b class="${cCls}">${Math.round(career)} mSv · ${Math.round(careerPct)}% of limit</b></div>
+    <div class="gd-bar career"><i class="${cCls}" style="width:${Math.min(100, careerPct)}%"></i><span style="left:100%">NASA limit 600 mSv</span></div>
+    ${spe ? `<div class="kv"><span>Solar event vs NASA per-event limit (250)</span><b class="${speDose > 250 ? 'crit' : speDose >= 100 ? 'warn' : 'ok'}">${speDose} mSv${speDose > 250 ? ' · OVER LIMIT' : ''}</b></div>` : ''}
     <div class="kv"><span>Added fatal-cancer risk (≈5% per Sv)</span><b class="${bandCls}">≈ ${risk.toFixed(1)}%</b></div>
-    ${spe ? `<div class="kv"><span>Solar particle event</span><b class="${shelter ? 'ok' : 'crit'}">${shelter ? 'sheltered — acute dose reduced' : 'unsheltered — acute DNA damage'}</b></div>` : ''}
-    ${crew.length ? `<div class="kv"><span>Most affected crew (sensitivity)</span><b>${crew.slice(0, 2).map(c => `${c.n} ${c.s.toFixed(2)}`).join(' · ')}</b></div>` : ''}
-    <p class="gd-note">Linear estimate from the NASA/SwRI figure; SPE dose not quantified (varies by event). Crew sensitivity is the platform's synthetic baseline.</p>`;
+    ${sens !== undefined ? `<div class="kv"><span>${esc(whoName)}'s radiation sensitivity</span><b class="${sens >= 0.6 ? 'warn' : 'ok'}">${sens.toFixed(2)} ${sens >= 0.6 ? '· higher than crew average' : ''}</b></div>` : ''}
+    <div class="srcrow">${chips(['std3001_rad', 'msl_rad'])}</div>`;
   // genes
   if (gsim.genes) {
     const recs = gsim.genes.records, lg = v => Math.log10(1 + Math.max(0, v));
@@ -1032,19 +1112,57 @@ function gsUpdate() {
     C(gsim.status.telomere !== 'ok', 'warn', 'Telomeres', 'Twins Study: telomeres lengthened during the year in space, then shortened quickly after landing; more short telomeres persisted.', ['twins']) +
     C(gsim.status.expr !== 'ok', 'warn', 'Gene expression keeps changing with time', 'Twins Study: far more genes changed in the second half of the year-long mission; most returned toward baseline within ~6 months after landing, some did not.', ['twins']) +
     C(gsim.status.immune !== 'ok' || band >= 1, 'warn', 'Inflammation & immune genes', 'Radiation switched on stress-response, immune/inflammation and DNA-repair genes (NAG9-1024); some T-cell activation changes persisted after the Twins mission.', ['nag9_1024', 'twins']) +
-    C(true, 'ok', 'Countermeasures', `Storm shelter: protects from solar particles, but cosmic rays are hard to stop. Vitamin A partly reversed the radiation gene signature in the study${vitA ? ' (active)' : ''}. Shorter time in deep space lowers the cumulative dose.`, ['msl_rad', 'nag9_1024']);
+    C(careerPct >= 70, careerPct >= 100 ? 'crit' : 'warn', `NASA career limit · ${Math.round(careerPct)}% used`, 'NASA-STD-3001: career spaceflight dose must stay below 600 mSv for every astronaut, set at a 3% mean risk of cancer death; a single solar particle event is limited to 250 mSv.', ['std3001_rad']) +
+    C(true, 'ok', 'Countermeasures', `Storm shelter during solar events (protects from solar particles, though cosmic rays are hard to stop). Vitamin A partly reversed the radiation gene signature in the study${vitA ? ' (active)' : ''}. Shorter time in deep space lowers the cumulative dose.`, ['msl_rad', 'nag9_1024']);
+  renderGenOverview(); if (typeof msSync === 'function') msSync('gs');
   renderGeneList();
 }
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function fillWho() {
+  const sel = $('#gsWho'), cur = sel.value || lsGet('beyond-horizons:gsim', {}).who || 'you';
+  sel.innerHTML = `<option value="you">${esc(settings.astronaut)} (you)</option>` + (gsim.crew || []).map(c => `<option value="${esc(c.id)}">${esc(c.display_name)} · ${esc(c.role)}</option>`).join('');
+  sel.value = [...sel.options].some(o => o.value === cur) ? cur : 'you';
+}
+function renderGenOverview() {
+  const st = geneStatus(), sc = scen(), vals = Object.values(st);
+  const nW = vals.filter(x => x === 'warn').length, nC = vals.filter(x => x === 'crit').length;
+  const expr = Math.max(80, sc.gen.expr - nW * 1.6 - nC * 3.5);
+  $('#gExpr').textContent = expr.toFixed(1) + '%';
+  const eb = $('#gExprBar'); eb.style.width = expr + '%'; eb.className = expr < 93 ? 'warn' : '';
+  const mut = st.dna === 'crit' ? ['High', 88, 'crit'] : st.dna === 'warn' ? ['Elevated', 60, 'warn'] : [sc.gen.mut[0], sc.gen.mut[1], sc.gen.mut[1] > 50 ? 'warn' : ''];
+  $('#gMut').textContent = mut[0]; const mb = $('#gMutBar'); mb.style.width = mut[1] + '%'; mb.className = mut[2];
+  const g = gsim.summary;
+  if (g) $('#genSimLine').innerHTML = `<span>GENE SIMULATOR</span> ${esc(g.label)} · ${g.days} d · <b class="${g.careerPct >= 100 ? 'crit' : g.careerPct >= 70 ? 'warn' : 'ok'}">${Math.round(g.dose)} mSv · ${Math.round(g.careerPct)}% of NASA career limit</b>${nW + nC ? ` · <b class="${nC ? 'crit' : 'warn'}">${nW + nC} marker${nW + nC > 1 ? 's' : ''} flagged</b>` : ''}`;
+}
+function gsHow() {
+  $('#gsHowBody').innerHTML = `
+    <p class="lead">Every number on the simulator comes either from a NASA measurement or standard, or from a published NASA-funded study. The few rules we added are listed as rules.</p>
+    <div class="help-grid">
+      <div><h4>1 · DOSE RATE (MEASURED)</h4><p>ISS: 0.2–0.5 mSv/day (shown as a range, 0.35 mid-point). Deep space: 1.8 mSv/day, measured by Curiosity's RAD instrument on the way to Mars.</p>${chips(['iss_dose', 'msl_rad'])}</div>
+      <div><h4>2 · MISSION DOSE (CALCULATED)</h4><p>Dose rate × days in space, plus the solar-event dose you set. Solar events vary too much to have one number, so you choose it; NASA limits one event to 250 mSv.</p>${chips(['std3001_rad'])}</div>
+      <div><h4>3 · CAREER LIMIT (NASA STANDARD)</h4><p>Previous missions + this mission, compared with NASA's 600 mSv career limit (same for every age and sex, 3% mean risk of cancer death).</p>${chips(['std3001_rad'])}</div>
+      <div><h4>4 · CANCER RISK (LINEAR ESTIMATE)</h4><p>≈5% more fatal-cancer risk per 1 Sv, as stated with the Curiosity RAD results. A straight-line estimate, not a personal prediction.</p>${chips(['msl_rad'])}</div>
+      <div><h4>5 · GENE CHANGES (PUBLISHED DATA)</h4><p>Measured expression of 8 genes in rat skin after 9 and 18 Gy of radiation, with and without vitamin A (NASA grant NAG9-1024). These are lab doses far above a mission dose: they show which genes radiation changes, not the size of the change in a crew member.</p>${chips(['nag9_1024'])}</div>
+      <div><h4>6 · MARKERS (RULES WE SET)</h4><p>Display rules based on NASA findings: DNA-damage marker on watch from 100 mSv, alert from 300 mSv or a solar event ≥100 mSv; telomeres, immune and mitochondrial markers on watch from ~300 days (one-year Twins mission); expression drift from 180 days.</p>${chips(['twins', 'osd720'])}</div>
+    </div>
+    <h4>CREW SENSITIVITY</h4><p class="note" style="padding:0">Atlas, Nova, Lyra and Orion are the synthetic Ares-180 crew; their radiation sensitivity is a modelled trait, not a real person's genetics.</p>`;
+  $('#gsHowModal').classList.remove('hidden');
+}
 async function initGeneSim() {
-  ['gsSit', 'gsDays', 'gsSpe', 'gsShelter', 'gsVitA'].forEach(id => $('#' + id).addEventListener('input', () => {
+  const saved = lsGet('beyond-horizons:gsim', null);
+  if (saved) { $('#gsSit').value = saved.sit; $('#gsDays').value = saved.days; $('#gsSpe').checked = !!saved.spe; $('#gsSpeDose').value = saved.speDose ?? 50; $('#gsVitA').checked = !!saved.vitA; $('#gsPrior').value = saved.prior ?? 0; }
+  fillWho();
+  ['gsWho', 'gsSit', 'gsDays', 'gsSpe', 'gsSpeDose', 'gsVitA', 'gsPrior'].forEach(id => $('#' + id).addEventListener('input', () => {
     if (id === 'gsSit') $('#gsDays').value = SIT[$('#gsSit').value].days;
     gsUpdate();
   }));
+  $('#gsHowBtn').onclick = gsHow;
+  $('#gsHowModal').addEventListener('click', e => { if (e.target.id === 'gsHowModal') e.target.classList.add('hidden'); });
   $('#gsTableBtn').onclick = () => { $('#geneTableModal').classList.remove('hidden'); onTab('genetics'); };
   $('#geneTableModal').addEventListener('click', e => { if (e.target.id === 'geneTableModal') e.target.classList.add('hidden'); });
   gsUpdate();
   try { gsim.genes = await getGenesData(); } catch { /* shown as unavailable */ }
-  try { gsim.crew = (await getMissionData()).crew_profiles; } catch { /* optional */ }
+  try { const md = await getMissionData(); gsim.crew = md.crew_profiles; gsim.events = md.events || []; fillWho(); } catch { /* optional */ }
   if (!gsim.genes) $('#gsGenes').innerHTML = '<p class="note">Gene data unavailable right now.</p>';
   gsUpdate();
 }
@@ -1105,7 +1223,7 @@ function applySelfVitals(entry, ev) {
 function applySettings() {
   CONFIG.astronaut = settings.astronaut; CONFIG.mission = settings.mission;
   $('#hdAstro').textContent = String(settings.astronaut).toUpperCase(); $('#hdMission').textContent = String(settings.mission).toUpperCase();
-  $('#tPhase').textContent = settings.phase; $('#tCrew').textContent = settings.crew;
+  $('#tCrew').textContent = settings.crew;
   CONFIG.startElapsed = Math.round(+settings.elapsedH * 3600) || 0; state.clock0 = performance.now(); clockTick();
 }
 function openSettings() {
@@ -1265,9 +1383,9 @@ function buildStatic() {
       const s = vitalStatus()[k], c = COL[s], v = state.v, sc = scen();
       if (k === 'hr') drawWave(w, t, c, tt => ecg(tt, v.hr, sc.irregular), { gain: 0.55, mid: 0.7, span: 3.5 });
       if (k === 'spo2') drawWave(w, t, c, tt => pleth(tt, v.hr, v.spo2 < 92 ? 0.55 : 1), { gain: 0.6, mid: 0.78, span: 4 });
-      if (k === 'temp') drawWave(w, t, c, tt => 0.25 * Math.sin(tt * 0.9) + 0.12 * Math.sin(tt * 2.3 + 1) + (v.temp - 36.6) * 0.3, { gain: 0.5, mid: 0.55, span: 8 });
+      if (k === 'temp') drawWave(w, t, c, tt => 0.04 * Math.sin(tt * 0.35) + 0.02 * Math.sin(tt * 1.1 + 1), { gain: 0.5, mid: 0.5, span: 20 });
       if (k === 'bp') drawWave(w, t, c, tt => { const x = (tt * v.hr / 60) % 1; return (x < 0.15 ? x / 0.15 : Math.exp(-(x - 0.15) * 4.5)) * 0.9 + 0.12 * Math.exp(-((x - 0.38) ** 2) / 0.002); }, { gain: 0.55, mid: 0.8, span: 3.5 });
-      if (k === 'rr') drawWave(w, t, c, tt => Math.sin(tt * Math.PI * 2 * v.rr / 60) * 0.6, { gain: 0.55, mid: 0.5, span: 10 });
+      if (k === 'rr') drawWave(w, t, c, tt => Math.sin(tt * Math.PI * 2 * v.rr / 60) * 0.45, { gain: 0.5, mid: 0.5, span: 12 });
     });
   });
   regWave($('#neuralWave'), (w, t) => drawWave(w, t, '#39c6ff', tt => Math.sin(tt * 9) * 0.25 + Math.sin(tt * 23 + 1) * 0.15 + (hash(Math.floor(tt * 30)) - 0.5) * 0.35, { gain: 0.6, mid: 0.5, span: 3 }));
@@ -1287,9 +1405,9 @@ function buildStatic() {
         const hist = lsGet('beyond-horizons:vitals-history', []), mk = MINE_KEY[k];
         const arr = mk ? hist.map(x => x.entry?.[mk]).filter(v => typeof v === 'number') : [];
         const b = tr.querySelector('b');
-        if (!arr.length) { b.textContent = mk ? 'no readings yet' : 'not recorded in My Vitals'; b.style.color = 'var(--dim)'; const { ctx, c } = w; ctx.clearRect(0, 0, c.width, c.height); return; }
+        if (!arr.length) { b.innerHTML = `<small>${mk ? 'no readings yet' : 'not recorded in My Vitals'}</small>`; b.style.color = 'var(--dim)'; const { ctx, c } = w; ctx.clearRect(0, 0, c.width, c.height); return; }
         const lastM = arr[arr.length - 1], sm = classify(lastM, r);
-        b.textContent = (k === 'temp' ? lastM.toFixed(1) : Math.round(lastM)) + ' ' + r.unit + ` · ${arr.length} reading${arr.length > 1 ? 's' : ''}`; b.style.color = sm === 'ok' ? '#fff' : COL[sm];
+        b.innerHTML = (k === 'temp' ? lastM.toFixed(1) : Math.round(lastM)) + ' ' + r.unit + `<small>${arr.length} reading${arr.length > 1 ? 's' : ''}</small>`; b.style.color = sm === 'ok' ? '#fff' : COL[sm];
         drawTrend(w, arr.length === 1 ? [arr[0], arr[0]] : arr, COL[sm], r, true);
         return;
       }
@@ -1310,10 +1428,10 @@ function simTick(dt) {
   const tv = targetV(), te = targetE();
   const k = Math.min(1, dt * 0.9);
   for (const key of Object.keys(tv)) {
-    const noise = { hr: 0.8, spo2: 0.08, temp: 0.01, sys: 0.6, dia: 0.4, rr: 0.15 }[key] || 0;
+    const noise = { hr: 0.35, spo2: 0.03, temp: 0.004, sys: 0.25, dia: 0.2, rr: 0.05 }[key] || 0;
     state.v[key] += (tv[key] - state.v[key]) * k + (Math.random() - 0.5) * noise * dt * 4;
   }
-  if (scen().irregular) state.v.hr += (Math.random() - 0.5) * 6 * dt * 4;
+  if (scen().irregular) state.v.hr += (Math.random() - 0.5) * 3 * dt * 4;
   state.v.spo2 = Math.min(100, state.v.spo2);
   for (const key of Object.keys(te)) {
     state.e[key] += (te[key] - state.e[key]) * k * 0.7;
@@ -1348,8 +1466,8 @@ function loop(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now;
   const t = (now - state.t0) / 1000;
   holoTime.value = t;
-  simTick(dt); recordHist(dt);
-  uiAcc += dt; if (uiAcc > 0.5) { uiAcc = 0; updateVitalsUI(); updateEnvUI(); updateStatusUI(); clockTick(); }
+  simTick(dt); recordHist(dt); msTick(dt);
+  uiAcc += dt; if (uiAcc > 1.0) { uiAcc = 0; updateVitalsUI(); updateEnvUI(); updateStatusUI(); clockTick(); }
   if (state.mode === 'astronaut') { state.scanProg += dt * 0.004; if (state.scanProg > 1) state.scanProg = 0; }
   waveAcc += dt; if (waveAcc > 1 / 30) { waveAcc = 0; for (const w of waves) if (w.c.offsetParent) w.fn(w, t); }
 
@@ -1387,7 +1505,7 @@ async function boot() {
   if (holo.anat) { holo.anat.visible = true; holo.astro.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(holo.anat); holo.anatTop = b.max.y; holo.anat.visible = false; }
   setupMiniViews();
   initResearch({ registerSelfVitals, applySelfVitals, hudSummary, goTab });
-  initGeneSim();
+  initGeneSim().then(() => initMission());
   applyOrganStatus(); updateStatusUI(); updateVitalsUI(); updateEnvUI(); updateScanList(); clockTick();
   layout();
   if (qs.get('mode') === 'scan') setMode('scan');

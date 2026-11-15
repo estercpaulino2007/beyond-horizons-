@@ -58,14 +58,17 @@ Compares the three alternatives for the critical day-145 EVA (maintain, delay 10
 An interactive causal graph (radiation, microgravity, sleep debt, cognitive load, bone, muscle, operational error…) where every link is coloured by evidence level — supported evidence, data-supported association, exploratory hypothesis, synthetic parameter. Click a node or link to see its source and limitations. The Research Navigator ranks the next experiments by `mission_impact × uncertainty × information_gain / cost`.
 
 ### 8. Genetics — radiation → gene alteration simulator
-- **Choose a situation**: ISS in Low Earth Orbit, a one-year ISS mission (NASA Twins Study), Mars transit or a Mars round trip; set the days in space, add a **solar particle event**, a **storm shelter** and a **vitamin A (retinoid) diet** countermeasure.
+- **Choose who and what**: the astronaut (you, or one of the Ares-180 crew with their radiation sensitivity), the situation (ISS, a one-year ISS mission as in the NASA Twins Study, Mars transit or round trip), days in space, dose from previous missions, a **solar particle event** with its dose, and a **vitamin A (retinoid) diet** countermeasure.
+- **Career dose vs. NASA's limit**: previous + this mission compared with NASA-STD-3001's 600 mSv career limit (same for all ages and sexes, 3% mean risk of cancer death) and the 250 mSv per-solar-event limit.
+- **HOW IT'S CALCULATED** explains every step and marks which parts are measured, calculated, published data or display rules.
+- The result also appears on the Overview (Genetic overview panel and AI insights) and drives the MISSION tab.
 - **Radiation dose** from NASA measurements (ISS 0.2–0.5 mSv/day; Curiosity RAD 1.8 mSv/day in deep-space cruise), its dose band, the added fatal-cancer risk (≈5% per Sv, NASA/SwRI) and the crew members most affected.
 - **Which genes change and by how much**: the published gene-expression table of NASA grant NAG9-1024 (Burns et al. 2002) — control vs. 9 Gy vs. 18 Gy, and how vitamin A partly reverses the change — with each gene's role.
 - **Consequences — what NASA found**: cancer risk, DNA damage and genome instability (Twins Study, OSDR OSD-720), telomeres, gene-expression drift over time, inflammation and immune genes, and countermeasures. The ones that apply light up.
 - **Genomic markers** (telomeres, DNA damage response, expression drift, immune, oxidative stress, mitochondria) follow both the health scenario and the simulator; markers in watch/alert light up on the 3D DNA, and clicking one explains it.
 
-### 9. Mission and habitat
-Earth → Mars transit view with measured deep-space dose rates, mission timeline, and an explorable **ISS interior** (photogrammetry): drag to look around, scroll to move through the module, double-click for the automatic tour.
+### 9. Mission control and habitat
+Pick the mission profile (shared with the genetics simulator) and move through it day by day or press play: the ship moves on the 3D Earth–Mars (or ISS orbit) view, and the panel shows the phase, dose so far, career total against NASA's limit and the timeline of events (including the Ares-180 solar storm and critical EVA). Plus an explorable **ISS interior** (photogrammetry): drag to look around, scroll to move through the module, double-click for the automatic tour.
 
 ### 10. Beyond AI
 An embedded assistant (**ASK BEYOND AI**, or **Ask AI** in the AI Insights panel) that answers questions about the crew, the current scan, your saved vitals and the evidence behind each risk, grounded only in the platform's own data. The conversation is saved in the browser.

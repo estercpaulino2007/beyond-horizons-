@@ -25,6 +25,14 @@ export const SOURCES = {
     url: 'https://www.nasa.gov/wp-content/uploads/2023/12/ochmo-tb-003-habitable-atmosphere.pdf',
     used: 'O₂ and pressure tiles; hypoxia scenario',
   },
+  std3001_rad: {
+    kind: 'NASA standard', short: 'NASA-STD-3001 · Radiation',
+    title: 'NASA-STD-3001 Vol. 1 [V1 4030, V1 4031] — Career and solar-particle-event radiation limits (OCHMO-TB-020, Radiation Protection)',
+    org: 'NASA OCHMO', year: '2022',
+    fact: 'Career effective dose from spaceflight must stay below 600 mSv — universal for all ages and sexes, set at a 3% mean risk of cancer death. Exposure to a solar particle event is limited to 250 mSv per event.',
+    url: 'https://www.nasa.gov/wp-content/uploads/2023/03/radiation-protection-technical-brief-ochmo.pdf',
+    used: 'Genetics simulator career-limit bar and solar-event limit; MISSION tab dose-so-far',
+  },
   iss_dose: {
     kind: 'Measured spaceflight data', short: 'NASA · ISS dose',
     title: 'Simonsen et al. — Radiation exposure on the ISS compared with terrestrial workers (NASA NTRS 20250006168)',
