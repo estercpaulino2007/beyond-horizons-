@@ -76,7 +76,7 @@ body::before{ /* subtle tech grid */
   padding:10px 8px;border-radius:4px;cursor:pointer;transition:.2s}
 .tab:hover{color:#fff;border-color:var(--line)}
 .tab.active{color:#fff;background:linear-gradient(180deg,rgba(40,130,255,.45),rgba(10,50,110,.6));border-color:var(--cy);box-shadow:0 0 14px rgba(57,198,255,.45),inset 0 -2px 0 var(--cy2);text-shadow:0 0 8px var(--cy)}
-.clock{left:1540px;top:12px;width:300px;height:56px;display:flex;align-items:center;justify-content:center;font-family:Mono;font-size:21px;letter-spacing:1px;color:#eaf6ff}
+.clock{left:1540px;top:12px;width:244px;font-size:17px !important;height:56px;display:flex;align-items:center;justify-content:center;font-family:Mono;font-size:21px;letter-spacing:1px;color:#eaf6ff}
 .fs-btn{left:1852px;top:12px;width:56px;height:56px;color:var(--cy2);cursor:pointer;display:grid;place-items:center}
 .fs-btn svg{width:26px;height:26px}
 
@@ -477,3 +477,34 @@ html.zoomed,html.zoomed body{overflow:auto}
 #zoomCtl button{font-family:Orbitron;font-size:13px;color:#fff;background:rgba(20,80,160,.35);border:1px solid rgba(70,175,255,.3);border-radius:4px;width:38px;height:30px;cursor:pointer}
 #zoomCtl button:hover{border-color:var(--cy);box-shadow:0 0 10px rgba(57,198,255,.4)}
 #zoomCtl span{font-family:Mono;font-size:13px;color:var(--cy2);min-width:48px;text-align:center}
+
+/* ================= v6: heart, my trends, gene detail, help ================= */
+.help-btn{left:1794px;top:12px;width:50px;height:56px;font-family:Orbitron;font-size:24px;font-weight:700;color:var(--ok);cursor:pointer}
+.help-btn:hover{border-color:var(--ok);box-shadow:0 0 14px rgba(45,255,138,.4)}
+.bio3d .mini3d.half{position:absolute;top:66px;bottom:52px}
+.bio3d .mini3d.half.l{left:12px;right:50%} .bio3d .mini3d.half.r{left:50%;right:12px}
+.bio3d .legend.hl{left:24px} .bio3d #lungLegend{left:auto;right:24px}
+.seg{position:absolute;right:20px;top:12px;display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{font-family:Orbitron;font-size:11px;letter-spacing:1px;color:var(--dim);background:rgba(4,20,46,.8);border:0;padding:7px 12px;cursor:pointer}
+.seg button.on{color:#fff;background:linear-gradient(180deg,rgba(40,130,255,.55),rgba(10,50,110,.7))}
+.sim-tag.mine{color:var(--ok);border-color:rgba(45,255,138,.6)}
+.trend label b{font-size:22px}
+.gen-status{position:absolute;left:20px;right:20px;top:66px;display:flex;flex-direction:column;gap:2px;z-index:2}
+.gen-status b{font-family:Orbitron;font-size:15px;letter-spacing:1px} .gen-status span{font-size:14px;color:var(--dim)}
+.gene-detail{position:absolute;left:12px;right:12px;bottom:12px;max-height:46%;overflow:auto;background:rgba(3,12,28,.88);border:1px solid var(--line);border-radius:5px;padding:0 14px;z-index:2}
+.gene-detail:empty{display:none}
+.gene-detail h4{font-family:Orbitron;font-size:14px;letter-spacing:1px;margin:10px 0 6px}
+.gene-detail p{font-size:15px;line-height:1.35;margin-bottom:6px;color:#d8ebff}
+.gene-detail div{margin-bottom:10px}
+#view-genetics .gene{cursor:pointer;border-left:3px solid transparent}
+#view-genetics .gene:hover{background:rgba(57,198,255,.06)}
+#view-genetics .gene.sel{border-left-color:var(--cy);background:rgba(57,198,255,.1)}
+.help-box{width:min(1180px,96vw);height:min(900px,94vh);display:flex;flex-direction:column;overflow:hidden}
+.help-body{flex:1;padding:0 22px}
+.help-body .lead{font-size:19px;line-height:1.45;margin:6px 0 14px;color:#e6f6ff}
+.help-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.help-grid div{border:1px solid rgba(70,175,255,.25);border-radius:6px;padding:10px 14px;background:rgba(5,22,50,.55)}
+.help-grid h4,.help-body>h4{font-family:Orbitron;font-size:13px;letter-spacing:1.5px;color:var(--cy2);margin-bottom:6px}
+.help-body>h4{margin-top:14px}
+.help-grid p{font-size:15.5px;line-height:1.35;color:#d8ebff}
+.tips{padding-left:22px;font-size:16px;line-height:1.5;color:#d8ebff;margin-bottom:12px}

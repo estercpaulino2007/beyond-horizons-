@@ -8,8 +8,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { initResearch, onTab, logScan } from './research.js?v=5';
-import { chips, initSources } from './sources.js?v=5';
+import { initResearch, onTab, logScan } from './research.js?v=6';
+import { chips, initSources } from './sources.js?v=6';
 
 /* ============================================================
    CONFIG
@@ -152,7 +152,7 @@ addEventListener('scroll', () => sizeHolo(), { passive: true });
    LOADING
    ============================================================ */
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-const MODEL_LIST = ['astronaut', 'organs', 'vessels', 'brain', 'brain-holo', 'dna', 'earth', 'iss', 'lungs', 'mars', 'station'];
+const MODEL_LIST = ['astronaut', 'organs', 'vessels', 'heart', 'brain', 'brain-holo', 'dna', 'earth', 'iss', 'lungs', 'mars', 'station'];
 if (CONFIG.useNasaInsignia) MODEL_LIST.push('nasa');
 const progress = {};
 const models = {};
@@ -403,10 +403,15 @@ function setupAstronaut() {
       const n = (o.material?.name || '').toLowerCase();
       if (n.startsWith('artery')) tag(o, 'artery', { base: 0.16, rim: 0.55 });
       else if (n.startsWith('vein')) tag(o, 'vein', { base: 0.14, rim: 0.5 });
-      else if (n.startsWith('muscles')) tag(o, 'heart', { base: 0.55, rim: 1.4, pow: 1.4 });
+      else if (n.startsWith('muscles')) o.visible = false; // replaced by the dedicated heart model
       else o.visible = false;
     });
     anat.add(models.vessels.scene);
+  }
+  if (models.heart) {
+    const h = models.heart.scene.clone();
+    h.traverse(o => { if (o.isMesh) tag(o, 'heart', { base: 0.4, rim: 1.4, pow: 1.4 }); });
+    anat.add(h); holo.heart = h;
   }
   if (models.brain) {
     const b = models.brain.scene.clone();
@@ -569,7 +574,15 @@ function holoClone(src, opts) {
   c.traverse(o => { if (o.isMesh) { o.material = m; } });
   return { obj: c, mat: m };
 }
+function setDnaStatus(level, n) {
+  const col = level === 'crit' ? 0xff2236 : level === 'warn' ? 0xffb020 : 0x4fc4ff;
+  for (const d of mini.dna) {
+    d.mat.userData.u.uColor.value.set(col); d.mat.userData.u.uPulse.value = level === 'ok' ? 0 : level === 'crit' ? 1.2 : 0.6; d.mat.userData.u.uPulseSpeed.value = level === 'crit' ? 6 : 3;
+    d.lesions.forEach((m, i) => { m.visible = level !== 'ok' && i < n; m.material.color.set(level === 'crit' ? 0xff2236 : 0xffb020); });
+  }
+}
 function setupMiniViews() {
+  mini.dna = [];
   // brain (body-scan column)
   if (models.brain) {
     const s = new THREE.Scene(), cam = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
@@ -591,12 +604,18 @@ function setupMiniViews() {
   if (models.dna) {
     const mk = (big) => {
       const s = new THREE.Scene(), cam = new THREE.PerspectiveCamera(30, 1, 0.01, 200);
-      const { obj } = holoClone(models.dna.scene, { color: 0x4fc4ff, base: 0.25, rim: 1.2, pow: 1.6 });
+      const { obj, mat } = holoClone(models.dna.scene, { color: 0x4fc4ff, base: 0.25, rim: 1.2, pow: 1.6 });
       const tilt = new THREE.Group(), spin = new THREE.Group(); spin.add(obj); tilt.add(spin); s.add(tilt);
+      const lesions = [];
+      for (let i = 0; i < 7; i++) {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshBasicMaterial({ color: 0xff2236, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false }));
+        const a = i * 2.3; m.position.set(Math.cos(a) * 0.72, Math.sin(a) * 0.72, -5.4 + i * 1.8); m.visible = false; obj.add(m); lesions.push(m);
+      }
+      mini.dna.push({ mat, lesions });
       spin.rotation.x = Math.PI / 2; tilt.rotation.z = big ? -0.25 : -0.62;
       const fr = frameObject(tilt, cam, big ? 1.0 : 1.12);
       const orb = big ? orbitable('dnabig', cam, fr.c.clone()) : null;
-      return { s, cam, update: t => { obj.rotation.z = t * 0.6; orb?.(); } };
+      return { s, cam, update: t => { obj.rotation.z = t * 0.6; orb?.(); const p = 0.7 + 0.5 * Math.sin(t * 6); mini.dna.forEach(d => d.lesions.forEach(m => m.scale.setScalar(p))); } };
     };
     const a = mk(false); addView('dna', a.s, a.cam, a.update);
     if (models.dna) { const b = mk(true); addView('dnabig', b.s, b.cam, b.update); }
@@ -658,6 +677,27 @@ function setupMiniViews() {
       tint.set(stv === 'crit' ? 0xff2236 : stv === 'warn' ? 0xffb020 : 0x000000);
       const k = stv === 'ok' ? 0 : (0.35 + 0.25 * Math.sin(t * 6));
       l.traverse(o => { if (o.isMesh && o.material.emissive) { o.material.emissive.copy(tint).multiplyScalar(k); } });
+    });
+  }
+  // beating heart (biometrics)
+  if (models.heart) {
+    const s = basicLights(new THREE.Scene(), 0xffd8e0), cam = new THREE.PerspectiveCamera(30, 1, 0.001, 100);
+    const h = models.heart.scene.clone(); const piv = new THREE.Group(); piv.add(h); s.add(piv);
+    const mats = [];
+    h.traverse(o => { if (o.isMesh) { const n = (o.material?.name || '').toLowerCase(); o.material = new THREE.MeshStandardMaterial({ color: n.startsWith('vein') ? 0x3a5cd0 : n.startsWith('artery') ? 0xd8404a : 0xb0262f, roughness: 0.45, metalness: 0.05, emissive: 0x000000 }); mats.push(o.material); } });
+    const bb = new THREE.Box3().setFromObject(h); h.position.sub(bb.getCenter(new THREE.Vector3()));
+    const fr = frameObject(piv, cam, 0.72, new THREE.Vector3(0.15, 0.1, 1)); const orb = orbitable('heart', cam, fr.c.clone());
+    const tint = new THREE.Color(); let beatT = 0, nextBeat = 0, last = 0;
+    addView('heart', s, cam, t => {
+      const dt = Math.min(0.1, t - last); last = t; beatT += dt;
+      const sc = scen(), period = 60 / Math.max(30, state.v.hr);
+      if (beatT >= nextBeat) { beatT = 0; nextBeat = sc.irregular ? period * (0.55 + 0.9 * Math.random()) : period; }
+      const ph = beatT / period, k = 1 + 0.07 * Math.exp(-((ph - 0.08) ** 2) / 0.003) + 0.03 * Math.exp(-((ph - 0.32) ** 2) / 0.006);
+      piv.scale.setScalar(k); piv.rotation.y = Math.sin(t * 0.3) * 0.4; orb();
+      const st = { ...ALL_OK, ...sc.organs }.cardiovascular;
+      tint.set(st === 'crit' ? 0xff2236 : st === 'warn' ? 0xffb020 : 0x000000);
+      const g = st === 'ok' ? 0 : (0.35 + 0.3 * Math.exp(-((ph - 0.08) ** 2) / 0.004));
+      mats.forEach(m => m.emissive.copy(tint).multiplyScalar(g));
     });
   }
   // transit Earth → Mars
@@ -778,14 +818,16 @@ function drawWave(w, t, color, fn, opts = {}) {
   ctx.beginPath(); ctx.arc(W - 3, H * (opts.mid ?? 0.62) - y * H * (opts.gain ?? 0.5), Math.max(2, H / 30), 0, 7); ctx.fill();
 }
 const COL = { ok: '#39c6ff', warn: '#ffb020', crit: '#ff3b4e' };
-function drawTrend(w, arr, color, r) {
+function drawTrend(w, arr, color, r, dots) {
   const { ctx, c } = w, W = c.width, H = c.height; ctx.clearRect(0, 0, W, H);
   if (arr.length < 2) return;
   const lo = Math.min(r.warn[0], ...arr) - 1, hi = Math.max(r.warn[1] === 100 ? 100 : r.warn[1], ...arr) + 1;
   const Y = v => H - (v - lo) / (hi - lo) * H;
   ctx.fillStyle = 'rgba(45,255,138,0.06)'; ctx.fillRect(0, Y(r.ok[1]), W, Y(r.ok[0]) - Y(r.ok[1]));
-  ctx.beginPath(); arr.forEach((v, i) => { const x = i / (240 - 1) * W, y = Y(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  const n = dots ? arr.length : 240, X = i => dots ? 10 + i / Math.max(1, n - 1) * (W - 20) : i / (n - 1) * W;
+  ctx.beginPath(); arr.forEach((v, i) => { const x = X(i), y = Y(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
   ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.shadowColor = color; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0;
+  if (dots) arr.forEach((v, i) => { ctx.fillStyle = classify(v, r) === 'ok' ? '#fff' : COL[classify(v, r)]; ctx.beginPath(); ctx.arc(X(i), Y(v), 4, 0, 7); ctx.fill(); });
 }
 
 /* ============================================================
@@ -846,6 +888,8 @@ function updateStatusUI() {
   const eb = $('#gExprBar'); eb.style.width = g.expr + '%'; eb.className = g.expr < 93 ? 'warn' : '';
   $('#gMut').textContent = g.mut[0]; const mb = $('#gMutBar'); mb.style.width = g.mut[1] + '%'; mb.className = g.mut[1] > 50 ? 'warn' : '';
   const ls = { ...ALL_OK, ...sc.organs }.respiratory;
+  const cs = { ...ALL_OK, ...sc.organs }.cardiovascular;
+  $('#heartLegend').innerHTML = `Cardiac status: <b style="color:var(--${cs === 'ok' ? 'ok' : cs})">${cs === 'ok' ? 'NOMINAL' : cs === 'warn' ? 'WATCH' : 'ALERT'}</b> · ${Math.round(state.v.hr)} bpm${sc.irregular ? ' · irregular' : ''}`;
   $('#lungLegend').innerHTML = `Lung tissue status: <b style="color:var(--${ls === 'ok' ? 'ok' : ls})">${ls === 'ok' ? 'NOMINAL' : ls === 'warn' ? 'WATCH' : 'ALERT'}</b>`;
   renderGeneList();
 }
@@ -879,17 +923,57 @@ function setScenario(i) {
   applyOrganStatus(); updateStatusUI(); updateScanList();
   if (state.mode === 'scan') { state.scanProg = 0; state.scanFast = true; state.scanStart = performance.now(); }
 }
+const GENE_INFO = {
+  telomere: { name: 'Telomere length', short: 'Chromosome-end length; shifted in long-duration flight', src: ['twins'],
+    what: 'Telomeres are protective caps at the ends of chromosomes; they shorten with age and cellular stress.',
+    nasa: 'In the NASA Twins Study, telomeres lengthened during the year in space and shortened rapidly after return; more short telomeres persisted afterwards.',
+    act: 'Track over the mission; combine with radiation dose and oxidative-stress markers.' },
+  dna: { name: 'DNA damage response', short: 'Double-strand break repair activity', src: ['twins', 'osd720', 'nag9_1024'],
+    what: 'Space radiation can break both DNA strands; cells switch on repair genes when this happens.',
+    nasa: 'The Twins Study recorded DNA damage and genome instability in flight. NASA-funded radiation studies (OSD-720, NAG9-1024) show lasting gene-expression changes after simulated space radiation.',
+    act: 'Limit further dose (storm shelter), log cumulative dose, repeat the marker after the event.' },
+  expr: { name: 'Gene expression drift', short: 'Stability vs. pre-flight baseline', src: ['twins'],
+    what: 'How far the overall pattern of active genes has moved from the crew member\'s own pre-flight baseline.',
+    nasa: 'In the Twins Study gene expression changed far more in the second half of the year-long mission; most changes returned toward baseline within about 6 months after landing, but some persisted.',
+    act: 'Compare with the baseline sample; correlate with sleep, workload and dose.' },
+  immune: { name: 'Immune gene activity', short: 'Inflammation-related expression', src: ['twins'],
+    what: 'Expression of genes that drive inflammation and immune responses.',
+    nasa: 'The Twins Study found immune-related changes in flight, and some T-cell activation changes were still present after return.',
+    act: 'Watch for infection signs; review heat load, sleep and stress.' },
+  oxid: { name: 'Oxidative stress', short: 'Oxidative damage markers', src: ['twins'],
+    what: 'Damage from reactive oxygen molecules produced under radiation, low oxygen or heavy workload.',
+    nasa: 'The Twins Study reported DNA methylation changes in oxidative-stress-related pathways during spaceflight.',
+    act: 'Reduce the trigger (radiation, hypoxia); track with the DNA-damage marker.' },
+  mito: { name: 'Mitochondrial function', short: 'Cellular energy pathways', src: ['twins'],
+    what: 'Genes of the mitochondria, the part of the cell that produces energy.',
+    nasa: 'The Twins Study observed changes in mitochondrial gene activity during long-duration flight.',
+    act: 'Relevant under low oxygen; correlate with SpO₂ and fatigue.' },
+};
+function geneStatus() {
+  const sc = scen(), id = sc.id, radC = sc.e && sc.e.rad !== undefined ? classify(sc.e.rad, ENV_RANGES.rad) : 'ok';
+  const rad = id === 'radiation' || radC !== 'ok', radCrit = id === 'radiation' || radC === 'crit';
+  return {
+    telomere: rad ? 'warn' : 'ok',
+    dna: radCrit ? 'crit' : rad ? 'warn' : 'ok',
+    expr: sc.gen.expr < 93 ? 'warn' : 'ok',
+    immune: id === 'heat' ? 'warn' : 'ok',
+    oxid: rad || id === 'hypoxia' ? 'warn' : 'ok',
+    mito: id === 'hypoxia' ? 'warn' : 'ok',
+  };
+}
+let geneSel = null;
 function renderGeneList() {
-  const sc = scen(), rad = sc.id === 'radiation';
-  const genes = [
-    ['Telomere length', 'Chromosome-end length; shifted in long-duration flight', rad ? 'warn' : 'ok'],
-    ['DNA damage response', 'Double-strand break repair activity', rad ? 'warn' : 'ok'],
-    ['Gene expression drift', `Stability ${sc.gen.expr.toFixed(1)}% vs. pre-flight baseline`, sc.gen.expr < 93 ? 'warn' : 'ok'],
-    ['Immune gene activity', 'Inflammation-related expression', sc.id === 'heat' ? 'warn' : 'ok'],
-    ['Oxidative stress', 'Oxidative damage markers', (rad || sc.id === 'hypoxia') ? 'warn' : 'ok'],
-    ['Mitochondrial function', 'Cellular energy pathways', sc.id === 'hypoxia' ? 'warn' : 'ok'],
-  ];
-  $('#geneList').innerHTML = genes.map(([n, d, s]) => `<div class="gene"><b>${n}</b><span>${d}</span><b style="color:var(--${s === 'ok' ? 'ok' : s})">${s === 'ok' ? 'STABLE' : 'WATCH'}</b></div>`).join('');
+  const st = geneStatus(), sc = scen();
+  const lbl = s => s === 'ok' ? 'STABLE' : s === 'warn' ? 'WATCH' : 'ALERT';
+  $('#geneList').innerHTML = Object.entries(GENE_INFO).map(([k, g]) => `<div class="gene${geneSel === k ? ' sel' : ''}" data-g="${k}"><b>${g.name}</b><span>${k === 'expr' ? `Stability ${sc.gen.expr.toFixed(1)}% vs. pre-flight baseline` : g.short}</span><b style="color:var(--${st[k] === 'ok' ? 'ok' : st[k]})">${lbl(st[k])}</b></div>`).join('');
+  $$('#geneList .gene').forEach(r => r.onclick = () => { geneSel = r.dataset.g; renderGeneList(); });
+  const flagged = Object.entries(st).filter(([, s]) => s !== 'ok'), level = worst(...Object.values(st));
+  setDnaStatus(level, flagged.length + (level === 'crit' ? 2 : 0));
+  $('#genStatus').innerHTML = flagged.length ? `<b class="${level}">${flagged.length} MARKER${flagged.length > 1 ? 'S' : ''} ${level === 'crit' ? 'IN ALERT' : 'ON WATCH'}</b><span>highlighted on the DNA model · click a marker for details</span>` : '<b class="ok">GENOME STABLE</b><span>no marker outside the baseline band</span>';
+  const k = geneSel || (flagged[0] && flagged[0][0]);
+  if (!k) { $('#geneDetail').innerHTML = ''; return; }
+  const g = GENE_INFO[k], s = st[k];
+  $('#geneDetail').innerHTML = `<h4>${g.name} · <span class="${s}">${lbl(s)}</span></h4><p><b>What it is:</b> ${g.what}</p><p><b>What NASA found:</b> ${g.nasa}</p><p><b>${s === 'ok' ? 'Monitoring' : 'Suggested action'}:</b> ${g.act}</p><div>${chips(g.src)}</div>`;
 }
 function buildScenarioUI() {
   const sel = $('#scenarioSel');
@@ -1047,6 +1131,8 @@ function hudSummary() {
 }
 function buildStatic() {
   initSources();
+  $('#helpBtn').onclick = () => $('#helpModal').classList.remove('hidden');
+  $('#helpModal').addEventListener('click', e => { if (e.target.id === 'helpModal') e.target.classList.add('hidden'); });
   $('#zoomIn').onclick = () => setZoom(1); $('#zoomOut').onclick = () => setZoom(-1);
   if (!ZOOMS.includes(uiZoom)) uiZoom = 1;
   const put = (id, ids) => { const el = document.getElementById(id); if (el) el.innerHTML = chips(ids); };
@@ -1099,9 +1185,27 @@ function buildStatic() {
   });
   regWave($('#neuralWave'), (w, t) => drawWave(w, t, '#39c6ff', tt => Math.sin(tt * 9) * 0.25 + Math.sin(tt * 23 + 1) * 0.15 + (hash(Math.floor(tt * 30)) - 0.5) * 0.35, { gain: 0.6, mid: 0.5, span: 3 }));
   regWave($('#bioWave'), (w, t) => drawWave(w, t, scen().id === 'radiation' ? '#ffb020' : '#39c6ff', tt => Math.sin(tt * 2.1) * 0.3 + Math.sin(tt * 5.3) * 0.15 + (scen().id === 'radiation' ? Math.sin(tt * 13) * 0.25 : 0), { gain: 0.6, mid: 0.5, span: 6 }));
+  let trendSrc = 'mission';
+  $$('#trendSrc button').forEach(b => b.onclick = () => {
+    trendSrc = b.dataset.src; $$('#trendSrc button').forEach(x => x.classList.toggle('on', x === b));
+    const mine = trendSrc === 'mine';
+    $('#trendTitle').textContent = mine ? 'MY VITAL TRENDS · SAVED READINGS' : 'VITAL TRENDS · LAST 60 s';
+    $('#trendTag').textContent = mine ? 'YOUR DATA' : 'SIMULATED'; $('#trendTag').classList.toggle('mine', mine);
+  });
+  const MINE_KEY = { hr: 'heart_rate_bpm', spo2: 'spo2_percent', temp: 'body_temp_c', rr: 'respiratory_rate_bpm', sys: null };
   $$('.trend').forEach(tr => {
     const k = tr.dataset.k, r = RANGES[k];
     regWave(tr.querySelector('canvas'), (w) => {
+      if (trendSrc === 'mine') {
+        const hist = lsGet('beyond-horizons:vitals-history', []), mk = MINE_KEY[k];
+        const arr = mk ? hist.map(x => x.entry?.[mk]).filter(v => typeof v === 'number') : [];
+        const b = tr.querySelector('b');
+        if (!arr.length) { b.textContent = mk ? 'no readings yet' : 'not recorded in My Vitals'; b.style.color = 'var(--dim)'; const { ctx, c } = w; ctx.clearRect(0, 0, c.width, c.height); return; }
+        const lastM = arr[arr.length - 1], sm = classify(lastM, r);
+        b.textContent = (k === 'temp' ? lastM.toFixed(1) : Math.round(lastM)) + ' ' + r.unit + ` · ${arr.length} reading${arr.length > 1 ? 's' : ''}`; b.style.color = sm === 'ok' ? '#fff' : COL[sm];
+        drawTrend(w, arr.length === 1 ? [arr[0], arr[0]] : arr, COL[sm], r, true);
+        return;
+      }
       const arr = state.hist[k], last = arr[arr.length - 1] ?? 0;
       const s = classify(last, r);
       tr.querySelector('b').textContent = (k === 'temp' ? last.toFixed(1) : Math.round(last)) + ' ' + r.unit;
@@ -1164,6 +1268,8 @@ function loop(now) {
 
   if (holoCanvas.style.display !== 'none' && holo.r) {
     holo.mixer?.update(dt);
+    if (holo.heart) { const ph = (holoTime.value * state.v.hr / 60) % 1, k = 1 + 0.06 * Math.exp(-((ph - 0.1) ** 2) / 0.004) + 0.03 * Math.exp(-((ph - 0.35) ** 2) / 0.006);
+      holo.heart.scale.setScalar(k); holo.heart.position.set(0.023 * (1 - k), 1.29 * (1 - k), 0.025 * (1 - k)); }
     if (anatMats.heart) { const u = anatMats.heart.userData.u; u.uPulseSpeed.value = state.v.hr / 60 * Math.PI * 2; if (u.uPulse.value < 0.5) u.uPulse.value = 0.5; }
     updateModeVisuals(dt);
     holo.spinA.rotation.z = t * 0.25; holo.spinB.rotation.z = -t * 0.4;
@@ -1200,6 +1306,7 @@ async function boot() {
   if (qs.has('s')) setScenario(+qs.get('s'));
   if (qs.has('tab')) goTab(qs.get('tab'));
   document.getElementById('loader').classList.add('done');
+  if (!lsGet('beyond-horizons:seen-guide', false) && !qs.has('tab') && !qs.has('mode')) { $('#helpModal').classList.remove('hidden'); lsSet('beyond-horizons:seen-guide', true); }
   requestAnimationFrame(loop);
   window.__bh = { holo, state, models, CONFIG, setMode, setScenario };
   setTimeout(() => { document.title = 'done'; }, 1500);

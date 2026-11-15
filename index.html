@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Beyond Horizons — Space Health Monitoring System</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2244%22 fill=%22%2303204f%22 stroke=%22%235fd4ff%22 stroke-width=%224%22/%3E%3Ctext x=%2250%22 y=%2262%22 text-anchor=%22middle%22 font-size=%2234%22 font-family=%22sans-serif%22 font-weight=%22bold%22 fill=%22white%22%3EBH%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 
@@ -73,6 +73,7 @@
     </div>
     <button class="ai-open panel" id="aiOpen"><i></i>ASK BEYOND AI</button>
     <button class="src-open panel" id="srcOpen"><i></i>NASA SOURCES</button>
+    <button class="help-btn panel" id="helpBtn" title="How it works">?</button>
     <button class="fs-btn panel" id="fsBtn" title="Fullscreen">
       <svg viewBox="0 0 24 24"><path d="M3 9V3h6M21 9V3h-6M3 15v6h6M21 15v6h-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
     </button>
@@ -213,10 +214,13 @@
 
   <!-- ================= BIOMETRICS ================= -->
   <section class="view" id="view-biometrics">
-    <div class="panel big3d"><h2>RESPIRATORY SYSTEM — 3D</h2><div class="view-tip">DRAG TO ROTATE · SCROLL TO ZOOM</div><div class="mini3d" data-view="lungs"></div>
+    <div class="panel big3d bio3d"><h2>HEART &amp; LUNGS — 3D</h2><div class="view-tip">DRAG TO ROTATE · SCROLL TO ZOOM</div>
+      <div class="mini3d half l" data-view="heart"></div><div class="mini3d half r" data-view="lungs"></div>
+      <div class="legend hl" id="heartLegend">Cardiac status: <b>NOMINAL</b></div>
       <div class="legend" id="lungLegend">Lung tissue status: <b>NOMINAL</b></div></div>
     <div class="panel charts">
-      <h2>VITAL TRENDS · LAST 60 s <span class="sim-tag">SIMULATED</span></h2>
+      <h2><span id="trendTitle">VITAL TRENDS · LAST 60 s</span> <span class="sim-tag" id="trendTag">SIMULATED</span></h2>
+      <div class="seg" id="trendSrc"><button data-src="mission" class="on">MISSION FEED</button><button data-src="mine">MY HISTORY</button></div>
       <div class="trend" data-k="hr"><label>Heart rate <b></b></label><canvas></canvas></div>
       <div class="trend" data-k="spo2"><label>SpO₂ <b></b></label><canvas></canvas></div>
       <div class="trend" data-k="temp"><label>Core temperature <b></b></label><canvas></canvas></div>
@@ -232,12 +236,14 @@
 
   <!-- ================= GENETICS ================= -->
   <section class="view" id="view-genetics">
-    <div class="panel big3d gen3d"><h2>GENOMIC INTEGRITY MONITOR</h2><div class="view-tip">DRAG TO ROTATE · SCROLL TO ZOOM</div><div class="mini3d" data-view="dnabig"></div></div>
+    <div class="panel big3d gen3d"><h2>GENOMIC INTEGRITY MONITOR</h2><div class="view-tip">DRAG TO ROTATE · SCROLL TO ZOOM</div><div class="mini3d" data-view="dnabig"></div>
+      <div class="gen-status" id="genStatus"></div>
+      <div class="gene-detail" id="geneDetail"></div></div>
     <div class="panel realgenes"><h2>RADIATION GENE-EXPRESSION DATA <span class="real-tag">PUBLISHED DATA</span></h2><div class="scroll" id="realGenes"></div></div>
     <div class="panel genlist">
       <h2>MARKERS UNDER WATCH <span class="sim-tag">SIMULATED</span> <span class="h-src inline" id="markSrc"></span></h2>
       <div id="geneList"></div>
-      <p class="note">Marker categories follow themes studied in NASA's Twins Study (telomere length, gene expression shifts, DNA damage response). Values follow the selected mission scenario and are simulated.</p>
+      <p class="note">Marker categories follow themes studied in NASA's Twins Study (telomere length, gene expression shifts, DNA damage response). Values follow the selected mission scenario and are simulated. Click a marker to see what it means.</p>
     </div>
   </section>
 
@@ -334,6 +340,34 @@
   </div>
 </div>
 
+<!-- How it works -->
+<div id="helpModal" class="modal hidden">
+  <div class="modal-box panel help-box">
+    <button class="modal-x" data-close="helpModal">✕</button>
+    <h2>HOW BEYOND HORIZONS WORKS</h2>
+    <div class="scroll help-body">
+      <p class="lead">Beyond Horizons is a health-monitoring console for astronauts on long missions. It watches the crew member's vital signs, the habitat around them and long-term spaceflight risks, shows <b>where in the body</b> a problem is, and explains every alert with the NASA evidence behind it.</p>
+      <div class="help-grid">
+        <div><h4>OVERVIEW</h4><p>Live vital signs, habitat environment, body scan, genetics, systems status and AI insights. Readings turn <b class="warn">amber</b> (watch) or <b class="crit">red</b> (alert) outside their limits.</p></div>
+        <div><h4>ASTRONAUT / SCAN MODE</h4><p>Scan mode turns the suit into a hologram and reveals the organs. Systems with a problem glow and are labelled on the body. Drag to rotate, scroll to zoom, right-drag to move.</p></div>
+        <div><h4>SCENARIOS</h4><p>Pick a situation (hypoxia, arrhythmia, solar storm, heat stress, bone loss, SANS…) or <b>create your own</b> with any readings. Keys 1–9 switch scenarios.</p></div>
+        <div><h4>BIOMETRICS</h4><p>Beating 3D heart and breathing lungs coloured by status, trends of the mission feed or of <b>your own</b> saved history, and the reference ranges used.</p></div>
+        <div><h4>MY VITALS</h4><p>Enter your own readings. They are evaluated, saved to your history, charted over time and can be shown on the hologram. Export/import your history as a file.</p></div>
+        <div><h4>GENETICS</h4><p>Genomic markers studied in NASA's Twins Study. A marker in watch/alert lights up on the DNA model; click it to read what it means. Includes published radiation gene-expression data.</p></div>
+        <div><h4>CREW RISK</h4><p>Simulates a 4-person, 180-day Mars-transit crew day by day. Choose destination, duration and countermeasures and see who is at risk, when and why.</p></div>
+        <div><h4>EVA DECISION</h4><p>Compares three options for a critical spacewalk and shows a debate between commander, flight surgeon, science officer and a skeptic.</p></div>
+        <div><h4>RESEARCH</h4><p>Evidence graph: how radiation, microgravity, sleep and workload lead to risk, with each link labelled by how strong its evidence is. Plus the next experiments worth doing.</p></div>
+        <div><h4>MISSION</h4><p>Earth → Mars transit with measured deep-space radiation, the mission timeline and an explorable ISS interior.</p></div>
+        <div><h4>BEYOND AI</h4><p>Ask questions about the crew, the current scan, your vitals or the evidence. Answers use only this platform's data.</p></div>
+        <div><h4>NASA SOURCES</h4><p>Every green tag opens its source: NASA-STD-3001, ISS and Curiosity radiation measurements, HRP evidence reports, the Twins Study, OSDR/GeneLab datasets.</p></div>
+      </div>
+      <h4>TIPS</h4>
+      <ul class="tips"><li>Click <b>MISSION</b> or <b>ASTRONAUT</b> at the top to change the names.</li><li><b>A− / A+</b> (bottom right) makes the whole interface bigger.</li><li><b>DATA LINK</b>: ONLINE = live API; SNAPSHOT = stored real API outputs while the server is asleep.</li><li>Mission readings are simulated and marked <b>SIMULATED</b>; NASA references set the limits and evidence. Research prototype, not medical advice.</li></ul>
+    </div>
+    <div class="vbtns"><button class="hud-btn primary" data-close="helpModal">START</button></div>
+  </div>
+</div>
+
 <!-- Customize mission -->
 <div id="cfgModal" class="modal hidden">
   <div class="modal-box panel cfg-box">
@@ -413,8 +447,8 @@
   </div>
 </div>
 
-<script src="config.js?v=5"></script>
+<script src="config.js?v=6"></script>
 <script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
-<script type="module" src="app.js?v=5"></script>
+<script type="module" src="app.js?v=6"></script>
 </body>
 </html>
