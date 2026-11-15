@@ -49,7 +49,7 @@ async function api(path, body) {
 }
 /* ---------- offline snapshot: real outputs of the Beyond Horizons API, used when the live link is unavailable ---------- */
 let snapP = null;
-const getSnap = () => (snapP ||= fetch('data/snapshot.json?v=6').then(r => { if (!r.ok) throw new Error('snapshot missing'); return r.json(); }));
+const getSnap = () => (snapP ||= fetch('data/snapshot.json?v=7').then(r => { if (!r.ok) throw new Error('snapshot missing'); return r.json(); }));
 const SNAP_NOTE = '<div class="snap-note">OFFLINE SNAPSHOT · real outputs of the Beyond Horizons API (deterministic Ares-180 seed), shown because the live data link is unavailable.</div>';
 async function apiOr(path, body, pick) {
   try { return { data: await api(path, body), snap: false }; }
@@ -492,3 +492,7 @@ export function initResearch(c) {
   const h = lsGet(KEYS.vitals, []);
   if (h.length) ctx.registerSelfVitals(h[h.length - 1].entry, h[h.length - 1].evaluation);
 }
+
+/* shared data for the gene simulator */
+export async function getGenesData() { return (await apiOr('/api/v1/evidence/gene-expression', undefined, sn => sn.genes)).data; }
+export async function getMissionData() { return (await apiOr('/api/v1/missions/ares-180', undefined, sn => sn.mission)).data; }

@@ -8,8 +8,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { initResearch, onTab, logScan } from './research.js?v=6';
-import { chips, initSources } from './sources.js?v=6';
+import { initResearch, onTab, logScan, getGenesData, getMissionData } from './research.js?v=7';
+import { chips, initSources } from './sources.js?v=7';
 
 /* ============================================================
    CONFIG
@@ -952,7 +952,7 @@ const GENE_INFO = {
 function geneStatus() {
   const sc = scen(), id = sc.id, radC = sc.e && sc.e.rad !== undefined ? classify(sc.e.rad, ENV_RANGES.rad) : 'ok';
   const rad = id === 'radiation' || radC !== 'ok', radCrit = id === 'radiation' || radC === 'crit';
-  return {
+  const base = {
     telomere: rad ? 'warn' : 'ok',
     dna: radCrit ? 'crit' : rad ? 'warn' : 'ok',
     expr: sc.gen.expr < 93 ? 'warn' : 'ok',
@@ -960,6 +960,93 @@ function geneStatus() {
     oxid: rad || id === 'hypoxia' ? 'warn' : 'ok',
     mito: id === 'hypoxia' ? 'warn' : 'ok',
   };
+  const g = gsim.status || {};
+  for (const k of Object.keys(base)) base[k] = worst(base[k], g[k] || 'ok');
+  return base;
+}
+// ---------- radiation → gene alteration simulator (NASA rates + published gene data) ----------
+const gsim = { status: null, genes: null, crew: null };
+const SIT = {
+  leo: { rate: 0.35, lo: 0.2, hi: 0.5, days: 180, label: 'ISS (LEO)', src: 'iss_dose' },
+  twins: { rate: 0.35, lo: 0.2, hi: 0.5, days: 340, label: 'ISS one-year mission', src: 'iss_dose' },
+  mars: { rate: 1.8, days: 180, label: 'deep-space cruise', src: 'msl_rad' },
+  marsrt: { rate: 1.8, days: 360, label: 'Mars round-trip transit', src: 'msl_rad' },
+};
+const GENE_ROLE = {
+  'Krt14': 'Structural keratin of basal skin cells',
+  'MRP14': 'Inflammation signal (S100A9)',
+  'Beta defensin-2': 'Antimicrobial immune peptide',
+  'SCC antigen 2 homolog': 'Protease inhibitor raised in squamous-cell tumours',
+  'CRBPII': 'Retinol (vitamin A) binding protein',
+  'Calcium-binding protein 8 homolog': 'Calcium-binding signalling protein',
+  'Involucrin': 'Skin barrier protein',
+  'ODC': 'Cell-proliferation enzyme (polyamine synthesis)',
+};
+const roleOf = sym => { for (const [k, v] of Object.entries(GENE_ROLE)) if (sym.startsWith(k)) return v; return ''; };
+function gsUpdate() {
+  const sit = SIT[$('#gsSit').value], days = +$('#gsDays').value, spe = $('#gsSpe').checked, shelter = $('#gsShelter').checked, vitA = $('#gsVitA').checked;
+  $('#gsDaysV').textContent = days;
+  const dose = sit.rate * days, lo = (sit.lo ?? sit.rate) * days, hi = (sit.hi ?? sit.rate) * days;
+  const speOpen = spe && !shelter;
+  const band = dose < 100 ? 0 : dose < 300 ? 1 : dose < 600 ? 2 : 3;
+  const bandTxt = ['LOW', 'MODERATE', 'ELEVATED', 'HIGH'][band], bandCls = ['ok', 'warn', 'warn', 'crit'][band];
+  const risk = dose / 1000 * 5;
+  // markers
+  gsim.status = {
+    dna: band >= 2 || speOpen ? 'crit' : band >= 1 || spe ? 'warn' : 'ok',
+    telomere: days >= 300 || band >= 1 ? 'warn' : 'ok',
+    expr: days >= 180 ? 'warn' : 'ok',
+    immune: days >= 300 || speOpen ? 'warn' : 'ok',
+    oxid: band >= 1 || speOpen ? 'warn' : 'ok',
+    mito: days >= 300 ? 'warn' : 'ok',
+  };
+  const crew = (gsim.crew || []).map(c => ({ n: c.display_name, r: c.role, s: c.baseline?.radiation_sensitivity ?? 0 })).sort((a, b) => b.s - a.s);
+  const rng = sit.lo ? `${Math.round(lo)}–${Math.round(hi)} mSv` : `${Math.round(dose)} mSv`;
+  $('#gsDose').innerHTML = `
+    <div class="gd-big"><span>Cumulative dose</span><b class="${bandCls}">${rng}</b><em>${sit.rate} mSv/day × ${days} days · ${sit.label}${spe ? ' + solar event' : ''}</em>${chips([sit.src])}</div>
+    <div class="gd-bar"><i class="${bandCls}" style="width:${Math.min(100, dose / 10)}%"></i><span style="left:100%">1 Sv</span></div>
+    <div class="kv"><span>Dose band</span><b class="${bandCls}">${bandTxt}</b></div>
+    <div class="kv"><span>Added fatal-cancer risk (≈5% per Sv)</span><b class="${bandCls}">≈ ${risk.toFixed(1)}%</b></div>
+    ${spe ? `<div class="kv"><span>Solar particle event</span><b class="${shelter ? 'ok' : 'crit'}">${shelter ? 'sheltered — acute dose reduced' : 'unsheltered — acute DNA damage'}</b></div>` : ''}
+    ${crew.length ? `<div class="kv"><span>Most affected crew (sensitivity)</span><b>${crew.slice(0, 2).map(c => `${c.n} ${c.s.toFixed(2)}`).join(' · ')}</b></div>` : ''}
+    <p class="gd-note">Linear estimate from the NASA/SwRI figure; SPE dose not quantified (varies by event). Crew sensitivity is the platform's synthetic baseline.</p>`;
+  // genes
+  if (gsim.genes) {
+    const recs = gsim.genes.records, lg = v => Math.log10(1 + Math.max(0, v));
+    const mx = Math.max(...recs.map(r => lg(Math.max(r.control, r.dose_9gy, r.dose_18gy))));
+    $('#gsGeneNote').textContent = `(published: ${gsim.genes.organism.split(' (')[0].toLowerCase()} ${gsim.genes.tissue.toLowerCase()}, 9–18 Gy — far above a mission dose)`;
+    $('#gsGenes').innerHTML = recs.map(r => {
+      const sym = r.gene_symbol, cond = vitA ? r.dose_9gy_plus_vitamin_a : r.dose_9gy;
+      const fc = r.control > 0 ? cond / r.control : null, up = fc === null ? cond > 0 : fc >= 2, dn = fc !== null && fc <= 0.5;
+      const cls = up ? (fc === null || fc >= 10 ? 'crit' : 'warn') : dn ? 'warn' : 'ok';
+      const fcTxt = fc === null ? (cond > 0 ? 'switched ON' : '—') : fc >= 1 ? `${fc.toFixed(fc >= 10 ? 0 : 1)}× up` : `${(1 / fc).toFixed(1)}× down`;
+      return `<div class="gg ${cls}"><div class="gg-h"><b>${sym}</b><span>${roleOf(sym)}</span><em class="${cls}">${fcTxt}</em></div>
+        <div class="gg-bars"><div><label>control</label><i style="width:${lg(r.control) / mx * 100}%"></i></div>${vitA ? `<div><label>9 Gy</label><i class="dim" style="width:${lg(r.dose_9gy) / mx * 100}%"></i></div>` : ''}<div><label>${vitA ? '9 Gy + vit A' : '9 Gy'}</label><i class="${cls}" style="width:${lg(cond) / mx * 100}%"></i></div>${!vitA ? `<div><label>18 Gy</label><i class="dim" style="width:${lg(r.dose_18gy) / mx * 100}%"></i></div>` : ''}</div></div>`;
+    }).join('') + `<p class="gd-note">${vitA ? 'With dietary vitamin A, most radiation-induced changes are partly reversed (reversal-response genes), as reported by Burns et al. 2002.' : 'Radiation switched on stress-response, immune/inflammation and DNA-repair genes. Tick “Vitamin A” to see the countermeasure.'} ${chips(['nag9_1024'])}</p>`;
+  }
+  // consequences
+  const C = (on, cls, title, body, src) => `<div class="cons ${on ? cls : 'off'}"><h4><span class="dot"></span>${title}</h4><p>${body}</p>${chips(src)}</div>`;
+  $('#gsCons').innerHTML =
+    C(band >= 1, band >= 3 ? 'crit' : 'warn', `Cancer risk · ≈ +${risk.toFixed(1)}%`, 'NASA/SwRI: 1 Sv of space radiation is associated with about a 5% increase in fatal-cancer risk. A Mars round-trip transit alone is ≈ 0.66 Sv.', ['msl_rad']) +
+    C(gsim.status.dna !== 'ok', gsim.status.dna, 'DNA damage & genome instability', 'The NASA Twins Study recorded DNA damage and genome instability in flight. In mice, simulated cosmic rays left the heart\'s gene activity altered 440–660 days later (OSDR OSD-720).', ['twins', 'osd720']) +
+    C(gsim.status.telomere !== 'ok', 'warn', 'Telomeres', 'Twins Study: telomeres lengthened during the year in space, then shortened quickly after landing; more short telomeres persisted.', ['twins']) +
+    C(gsim.status.expr !== 'ok', 'warn', 'Gene expression keeps changing with time', 'Twins Study: far more genes changed in the second half of the year-long mission; most returned toward baseline within ~6 months after landing, some did not.', ['twins']) +
+    C(gsim.status.immune !== 'ok' || band >= 1, 'warn', 'Inflammation & immune genes', 'Radiation switched on stress-response, immune/inflammation and DNA-repair genes (NAG9-1024); some T-cell activation changes persisted after the Twins mission.', ['nag9_1024', 'twins']) +
+    C(true, 'ok', 'Countermeasures', `Storm shelter: protects from solar particles, but cosmic rays are hard to stop. Vitamin A partly reversed the radiation gene signature in the study${vitA ? ' (active)' : ''}. Shorter time in deep space lowers the cumulative dose.`, ['msl_rad', 'nag9_1024']);
+  renderGeneList();
+}
+async function initGeneSim() {
+  ['gsSit', 'gsDays', 'gsSpe', 'gsShelter', 'gsVitA'].forEach(id => $('#' + id).addEventListener('input', () => {
+    if (id === 'gsSit') $('#gsDays').value = SIT[$('#gsSit').value].days;
+    gsUpdate();
+  }));
+  $('#gsTableBtn').onclick = () => { $('#geneTableModal').classList.remove('hidden'); onTab('genetics'); };
+  $('#geneTableModal').addEventListener('click', e => { if (e.target.id === 'geneTableModal') e.target.classList.add('hidden'); });
+  gsUpdate();
+  try { gsim.genes = await getGenesData(); } catch { /* shown as unavailable */ }
+  try { gsim.crew = (await getMissionData()).crew_profiles; } catch { /* optional */ }
+  if (!gsim.genes) $('#gsGenes').innerHTML = '<p class="note">Gene data unavailable right now.</p>';
+  gsUpdate();
 }
 let geneSel = null;
 function renderGeneList() {
@@ -1300,6 +1387,7 @@ async function boot() {
   if (holo.anat) { holo.anat.visible = true; holo.astro.updateMatrixWorld(true); const b = new THREE.Box3().setFromObject(holo.anat); holo.anatTop = b.max.y; holo.anat.visible = false; }
   setupMiniViews();
   initResearch({ registerSelfVitals, applySelfVitals, hudSummary, goTab });
+  initGeneSim();
   applyOrganStatus(); updateStatusUI(); updateVitalsUI(); updateEnvUI(); updateScanList(); clockTick();
   layout();
   if (qs.get('mode') === 'scan') setMode('scan');

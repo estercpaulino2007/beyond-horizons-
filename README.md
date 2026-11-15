@@ -57,8 +57,12 @@ Compares the three alternatives for the critical day-145 EVA (maintain, delay 10
 ### 7. Research — evidence graph and Research Navigator
 An interactive causal graph (radiation, microgravity, sleep debt, cognitive load, bone, muscle, operational error…) where every link is coloured by evidence level — supported evidence, data-supported association, exploratory hypothesis, synthetic parameter. Click a node or link to see its source and limitations. The Research Navigator ranks the next experiments by `mission_impact × uncertainty × information_gain / cost`.
 
-### 8. Genetics
-Published radiation gene-expression data (Burns et al. 2002, NASA grant NAG9-1024), the NASA OSDR dataset OSD-720 (space-radiation effects on the heart transcriptome) and the genomic markers studied in the NASA Twins Study, with a 3D DNA view.
+### 8. Genetics — radiation → gene alteration simulator
+- **Choose a situation**: ISS in Low Earth Orbit, a one-year ISS mission (NASA Twins Study), Mars transit or a Mars round trip; set the days in space, add a **solar particle event**, a **storm shelter** and a **vitamin A (retinoid) diet** countermeasure.
+- **Radiation dose** from NASA measurements (ISS 0.2–0.5 mSv/day; Curiosity RAD 1.8 mSv/day in deep-space cruise), its dose band, the added fatal-cancer risk (≈5% per Sv, NASA/SwRI) and the crew members most affected.
+- **Which genes change and by how much**: the published gene-expression table of NASA grant NAG9-1024 (Burns et al. 2002) — control vs. 9 Gy vs. 18 Gy, and how vitamin A partly reverses the change — with each gene's role.
+- **Consequences — what NASA found**: cancer risk, DNA damage and genome instability (Twins Study, OSDR OSD-720), telomeres, gene-expression drift over time, inflammation and immune genes, and countermeasures. The ones that apply light up.
+- **Genomic markers** (telomeres, DNA damage response, expression drift, immune, oxidative stress, mitochondria) follow both the health scenario and the simulator; markers in watch/alert light up on the 3D DNA, and clicking one explains it.
 
 ### 9. Mission and habitat
 Earth → Mars transit view with measured deep-space dose rates, mission timeline, and an explorable **ISS interior** (photogrammetry): drag to look around, scroll to move through the module, double-click for the automatic tour.

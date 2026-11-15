@@ -37,9 +37,9 @@ export const SOURCES = {
     kind: 'Measured spaceflight data', short: 'NASA MSL · RAD',
     title: 'Zeitlin et al. (2013) Measurements of energetic particle radiation in transit to Mars on the Mars Science Laboratory. Science 340:1080',
     org: 'NASA MSL / SwRI', year: '2013',
-    fact: 'Curiosity’s RAD measured an average GCR dose-equivalent rate of 1.8 mSv/day during cruise; ≈ 0.66 Sv for the transit phases of a round trip with current propulsion.',
+    fact: 'Curiosity’s RAD measured an average GCR dose-equivalent rate of 1.8 mSv/day during cruise; ≈ 0.66 Sv for the transit phases of a round trip with current propulsion. A dose of 1 Sv is associated with about a 5% increase in fatal cancer risk. A storm shelter protects against solar particles, but galactic cosmic rays are hard to stop: even a foot of aluminium would not change their dose much.',
     url: 'https://www.swri.org/press-release/swri-led-team-calculates-radiation-exposure-associated-trip-mars',
-    used: 'Mars-transit dose figures (MISSION tab), radiation watch band, solar-event scenario context',
+    used: 'Mars-transit dose figures (MISSION tab), gene simulator dose and cancer-risk estimate, radiation watch band, shelter countermeasure',
   },
   hrp_bone: {
     kind: 'NASA Human Research Program', short: 'NASA HRP · Bone',

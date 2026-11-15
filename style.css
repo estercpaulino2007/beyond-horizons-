@@ -508,3 +508,55 @@ html.zoomed,html.zoomed body{overflow:auto}
 .help-body>h4{margin-top:14px}
 .help-grid p{font-size:15.5px;line-height:1.35;color:#d8ebff}
 .tips{padding-left:22px;font-size:16px;line-height:1.5;color:#d8ebff;margin-bottom:12px}
+
+/* ================= v7: gene alteration simulator ================= */
+.genesim{left:644px;top:138px;width:1264px;height:560px}
+.gs-table-btn{position:absolute;right:20px;top:12px;padding:7px 12px;font-size:11px}
+.gs-left{position:absolute;left:0;top:62px;width:520px;bottom:10px;overflow:auto}
+.gs-left .ctl{grid-template-columns:160px 1fr;padding:4px 20px}
+.gs-left .ctl label b{color:var(--cy2);font-family:Orbitron;font-size:13px;margin-left:6px}
+.gs-left input[type=range]{width:100%;accent-color:#39c6ff}
+.gs-left .chk{padding:4px 20px}
+.gs-left .chk b{font-size:16px} .gs-left .chk small{font-size:13px}
+.gs-dose{padding:6px 20px}
+.gd-big span{display:block;font-size:14px;color:var(--dim)}
+.gd-big b{display:block;font-family:Orbitron;font-size:30px;margin:2px 0}
+.gd-big em{display:block;font-style:normal;font-size:14px;color:var(--dim);margin-bottom:4px}
+.gd-bar{position:relative;height:10px;background:rgba(57,198,255,.1);border-radius:5px;margin:8px 0 18px}
+.gd-bar i{position:absolute;left:0;top:0;bottom:0;border-radius:5px;background:var(--ok)}
+.gd-bar i.warn{background:var(--warn)} .gd-bar i.crit{background:var(--crit)}
+.gd-bar span{position:absolute;top:12px;transform:translateX(-100%);font-family:Mono;font-size:12px;color:var(--dim)}
+.gd-note{font-size:13px;color:var(--dim);margin-top:6px;line-height:1.35}
+.gs-right{position:absolute;left:530px;right:12px;top:62px;bottom:10px;display:flex;flex-direction:column}
+.gs-right .sub{padding:0 0 6px}
+.gs-genes{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px;align-content:start;padding-right:4px}
+.gs-genes .gd-note{grid-column:1/3}
+.gg{border:1px solid rgba(70,175,255,.2);border-left:3px solid var(--ok);border-radius:4px;padding:6px 10px;background:rgba(5,22,50,.55)}
+.gg.warn{border-left-color:var(--warn)} .gg.crit{border-left-color:var(--crit)}
+.gg-h{display:grid;grid-template-columns:1fr auto;gap:0 8px}
+.gg-h b{font-size:15px} .gg-h em{font-style:normal;font-family:Orbitron;font-size:12px;grid-row:1/3;grid-column:2;align-self:center}
+.gg-h span{font-size:12.5px;color:var(--dim)}
+.gg-bars{margin-top:4px;display:flex;flex-direction:column;gap:2px}
+.gg-bars div{display:grid;grid-template-columns:86px 1fr;align-items:center;gap:6px}
+.gg-bars label{font-family:Mono;font-size:11px;color:var(--dim)}
+.gg-bars i{display:block;height:7px;border-radius:3px;background:var(--cy)}
+.gg-bars i.warn{background:var(--warn)} .gg-bars i.crit{background:var(--crit);box-shadow:0 0 8px var(--crit)} .gg-bars i.ok{background:var(--ok)} .gg-bars i.dim{background:rgba(126,166,200,.45)}
+.gscons{left:644px;top:710px;width:760px;height:360px}
+.gscons .scroll{position:absolute;left:0;right:0;top:62px;bottom:10px;padding:0 16px}
+.cons{border:1px solid rgba(70,175,255,.2);border-left:3px solid var(--ok);border-radius:4px;padding:8px 12px;margin-bottom:8px;background:rgba(5,22,50,.55)}
+.cons.warn{border-left-color:var(--warn)} .cons.crit{border-left-color:var(--crit);box-shadow:0 0 12px rgba(255,59,78,.2)}
+.cons.off{opacity:.5}
+.cons h4{font-family:Orbitron;font-size:13px;letter-spacing:1px;display:flex;align-items:center;gap:8px}
+.cons .dot{width:9px;height:9px;border-radius:50%;background:var(--ok)}
+.cons.warn .dot{background:var(--warn)} .cons.crit .dot{background:var(--crit);box-shadow:0 0 8px var(--crit)} .cons.off .dot{background:var(--dim)}
+.cons p{font-size:15px;line-height:1.35;color:#d8ebff;margin:4px 0}
+#view-genetics .genlist{left:1416px;top:710px;width:492px;height:360px}
+#view-genetics .genlist h2{font-size:17px}
+#view-genetics .gene{grid-template-columns:1fr auto;padding:6px 18px;gap:8px}
+#view-genetics .gene span{display:none}
+#view-genetics .genlist .note{font-size:12px;padding:4px 18px}
+
+.gd-bar span{white-space:nowrap}
+.gen3d .view-tip{display:none}
+.gen3d .mini3d{bottom:250px !important}
+.gene-detail{max-height:230px}

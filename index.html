@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Beyond Horizons — Space Health Monitoring System</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2244%22 fill=%22%2303204f%22 stroke=%22%235fd4ff%22 stroke-width=%224%22/%3E%3Ctext x=%2250%22 y=%2262%22 text-anchor=%22middle%22 font-size=%2234%22 font-family=%22sans-serif%22 font-weight=%22bold%22 fill=%22white%22%3EBH%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 
@@ -239,11 +239,32 @@
     <div class="panel big3d gen3d"><h2>GENOMIC INTEGRITY MONITOR</h2><div class="view-tip">DRAG TO ROTATE · SCROLL TO ZOOM</div><div class="mini3d" data-view="dnabig"></div>
       <div class="gen-status" id="genStatus"></div>
       <div class="gene-detail" id="geneDetail"></div></div>
-    <div class="panel realgenes"><h2>RADIATION GENE-EXPRESSION DATA <span class="real-tag">PUBLISHED DATA</span></h2><div class="scroll" id="realGenes"></div></div>
+    <div class="panel genesim">
+      <h2>RADIATION → GENE ALTERATION SIMULATOR <span class="real-tag">NASA DATA</span></h2>
+      <button class="hud-btn gs-table-btn" id="gsTableBtn">FULL DATA TABLE</button>
+      <div class="gs-left">
+        <div class="ctl"><label>Situation</label><select id="gsSit" class="hud-sel">
+          <option value="leo">ISS · Low Earth Orbit</option>
+          <option value="twins">ISS · one year (NASA Twins Study)</option>
+          <option value="mars">Mars transit · deep space</option>
+          <option value="marsrt">Mars round trip (transit only)</option>
+        </select></div>
+        <div class="ctl"><label>Days in space <b id="gsDaysV">180</b></label><input id="gsDays" type="range" min="10" max="1000" step="10" value="180"></div>
+        <label class="chk"><input type="checkbox" id="gsSpe"><span><b>Solar particle event</b><small>acute burst of radiation during the mission</small></span></label>
+        <label class="chk"><input type="checkbox" id="gsShelter"><span><b>Storm shelter used</b><small>shielded module during the event</small></span></label>
+        <label class="chk"><input type="checkbox" id="gsVitA"><span><b>Vitamin A (retinoid) diet</b><small>countermeasure tested in NASA grant NAG9-1024</small></span></label>
+        <div class="gs-dose" id="gsDose"></div>
+      </div>
+      <div class="gs-right">
+        <h4 class="sub">HOW RADIATION CHANGES THESE GENES <small id="gsGeneNote">(published study, rat skin)</small></h4>
+        <div class="gs-genes scroll" id="gsGenes"></div>
+      </div>
+    </div>
+    <div class="panel gscons"><h2>CONSEQUENCES — WHAT NASA FOUND</h2><div class="scroll" id="gsCons"></div></div>
     <div class="panel genlist">
       <h2>MARKERS UNDER WATCH <span class="sim-tag">SIMULATED</span> <span class="h-src inline" id="markSrc"></span></h2>
       <div id="geneList"></div>
-      <p class="note">Marker categories follow themes studied in NASA's Twins Study (telomere length, gene expression shifts, DNA damage response). Values follow the selected mission scenario and are simulated. Click a marker to see what it means.</p>
+      <p class="note">Marker categories follow themes studied in NASA's Twins Study (telomere length, gene expression shifts, DNA damage response). Values follow the selected mission scenario and are simulated. Click a marker to see what it means. Markers follow the scenario and the simulator.</p>
     </div>
   </section>
 
@@ -340,6 +361,15 @@
   </div>
 </div>
 
+<!-- Gene data table -->
+<div id="geneTableModal" class="modal hidden">
+  <div class="modal-box panel src-box">
+    <button class="modal-x" data-close="geneTableModal">✕</button>
+    <h2>RADIATION GENE-EXPRESSION DATA <span class="real-tag">PUBLISHED DATA</span></h2>
+    <div class="scroll" id="realGenes" style="flex:1;padding:0 22px 16px"></div>
+  </div>
+</div>
+
 <!-- How it works -->
 <div id="helpModal" class="modal hidden">
   <div class="modal-box panel help-box">
@@ -353,7 +383,7 @@
         <div><h4>SCENARIOS</h4><p>Pick a situation (hypoxia, arrhythmia, solar storm, heat stress, bone loss, SANS…) or <b>create your own</b> with any readings. Keys 1–9 switch scenarios.</p></div>
         <div><h4>BIOMETRICS</h4><p>Beating 3D heart and breathing lungs coloured by status, trends of the mission feed or of <b>your own</b> saved history, and the reference ranges used.</p></div>
         <div><h4>MY VITALS</h4><p>Enter your own readings. They are evaluated, saved to your history, charted over time and can be shown on the hologram. Export/import your history as a file.</p></div>
-        <div><h4>GENETICS</h4><p>Genomic markers studied in NASA's Twins Study. A marker in watch/alert lights up on the DNA model; click it to read what it means. Includes published radiation gene-expression data.</p></div>
+        <div><h4>GENETICS</h4><p>Choose a situation (ISS, one year in space, Mars transit), days, a solar event and countermeasures: see the radiation dose, which genes change and by how much (published NASA-funded data), the consequences NASA found, and the affected markers lighting up on the DNA.</p></div>
         <div><h4>CREW RISK</h4><p>Simulates a 4-person, 180-day Mars-transit crew day by day. Choose destination, duration and countermeasures and see who is at risk, when and why.</p></div>
         <div><h4>EVA DECISION</h4><p>Compares three options for a critical spacewalk and shows a debate between commander, flight surgeon, science officer and a skeptic.</p></div>
         <div><h4>RESEARCH</h4><p>Evidence graph: how radiation, microgravity, sleep and workload lead to risk, with each link labelled by how strong its evidence is. Plus the next experiments worth doing.</p></div>
@@ -447,8 +477,8 @@
   </div>
 </div>
 
-<script src="config.js?v=6"></script>
+<script src="config.js?v=7"></script>
 <script type="importmap">{"imports":{"three":"./vendor/three/three.module.js","three/addons/":"./vendor/three/addons/"}}</script>
-<script type="module" src="app.js?v=6"></script>
+<script type="module" src="app.js?v=7"></script>
 </body>
 </html>
